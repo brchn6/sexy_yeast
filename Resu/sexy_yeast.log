@@ -1,18 +1,15 @@
 Environment created with genome size = 128, beta = 0.5, rho = 0.25
-Generation 1: Pop size = 2, Avg fitness = 0.9155, Max fitness = 0.9993, Min fitness = 0.8316
-Generation 2: Pop size = 4, Avg fitness = 0.9277, Max fitness = 0.9993, Min fitness = 0.7240
-Generation 3: Pop size = 8, Avg fitness = 0.8861, Max fitness = 0.9993, Min fitness = 0.5047
-Generation 4: Pop size = 16, Avg fitness = 0.9127, Max fitness = 0.9993, Min fitness = 0.5047
-Generation 5: Pop size = 32, Avg fitness = 0.9061, Max fitness = 0.9999, Min fitness = 0.5047
-Generation 6: Pop size = 64, Avg fitness = 0.8611, Max fitness = 1.0000, Min fitness = 0.0102
-Generation 7: Pop size = 128, Avg fitness = 0.8325, Max fitness = 1.0000, Min fitness = 0.0015
-Generation 8: Pop size = 256, Avg fitness = 0.8249, Max fitness = 1.0000, Min fitness = 0.0009
-Generation 9: Pop size = 512, Avg fitness = 0.7954, Max fitness = 1.0000, Min fitness = 0.0000
-Generation 10: Pop size = 1024, Avg fitness = 0.7800, Max fitness = 1.0000, Min fitness = 0.0000
-Creating visualizations
-Mating last generation to create diploid organisms
-Created 512 diploid organisms using dominant model
-Created 512 diploid organisms using recessive model
-Created 512 diploid organisms using codominant model
-Creating parent-offspring fitness comparison plot
-Simulation complete
+Generation 1: Pop size = 2, Avg fitness = 0.9999, Max fitness = 1.0000, Min fitness = 0.9999
+Generation 2: Pop size = 4, Avg fitness = 0.9999, Max fitness = 1.0000, Min fitness = 0.9999
+Generation 3: Pop size = 8, Avg fitness = 1.0000, Max fitness = 1.0000, Min fitness = 0.9998
+Generation 4: Pop size = 16, Avg fitness = 0.9999, Max fitness = 1.0000, Min fitness = 0.9996
+Generation 5: Pop size = 32, Avg fitness = 0.9998, Max fitness = 1.0000, Min fitness = 0.9973
+Generation 6: Pop size = 64, Avg fitness = 0.9996, Max fitness = 1.0000, Min fitness = 0.9869
+Generation 7: Pop size = 128, Avg fitness = 0.9966, Max fitness = 1.0000, Min fitness = 0.8594
+Generation 8: Pop size = 256, Avg fitness = 0.9908, Max fitness = 1.0000, Min fitness = 0.5076
+Generation 9: Pop size = 512, Avg fitness = 0.9804, Max fitness = 1.0000, Min fitness = 0.0396
+Generation 10: Pop size = 1024, Avg fitness = 0.9698, Max fitness = 1.0000, Min fitness = 0.0216
+Generation 11: Pop size = 2048, Avg fitness = 0.9603, Max fitness = 1.0000, Min fitness = 0.0008
+Generation 12: Pop size = 4096, Avg fitness = 0.9488, Max fitness = 1.0000, Min fitness = 0.0001
+Generation 13: Pop size = 8192, Avg fitness = 0.9363, Max fitness = 1.0000, Min fitness = 0.0000
+Generation 14: Pop size = 16384, Avg fitness = 0.9245, Max fitness = 1.0000, Min fitness = 0.0000

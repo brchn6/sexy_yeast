@@ -1,0 +1,1 @@
+bsub -q gsla-cpu -R rusage[mem=4200] -J yoyo /home/labs/pilpel/barc/sexy_yeast/src/main_simulation_BC.py --generations 32  --genome_size 128 --beta 0.5 --rho 0.25 --mating_strategy all_vs_all

@@ -314,8 +314,15 @@ class DiploidOrganism:
         self.parent1_id = parent1.id
         self.parent2_id = parent2.id
         self.mating_type = mating_type
-        self.fitness = self.calculate_fitness()
+        
+        # *** Store individual parent fitness values ***
+        self.parent1_fitness = parent1.fitness
+        self.parent2_fitness = parent2.fitness
+        
+        # Compute average parent fitness (used elsewhere) but not for the heatmap
         self.avg_parent_fitness = (parent1.fitness + parent2.fitness) / 2
+        
+        self.fitness = self.calculate_fitness()
 
     def _get_effective_genome(self):
         """Calculate effective genome based on inheritance model."""
@@ -331,12 +338,12 @@ class DiploidOrganism:
     def calculate_fitness(self):
         """Calculate fitness using the effective genome."""
         effective_genome = self._get_effective_genome()
-        return compute_fit_slow(
-            effective_genome,
-            self.environment.h,
-            self.environment.J,
-            F_off=0.0
-        )
+        energy = compute_fit_slow(
+        effective_genome,
+        self.environment.h,
+        self.environment.J,
+        F_off=0.0)
+        return 1.0 / (1.0 + np.exp(-energy))
 
 class OrganismWithMatingType:
     def __init__(self, organism, mating_type):
@@ -497,6 +504,135 @@ def plot_parent_offspring_fitness(diploid_dict, Resu_path):
     output_path = os.path.join(Resu_path, 'parent_offspring_fitness_subplots.png')
     plt.savefig(output_path, dpi=300, bbox_inches='tight')
     plt.close()
+
+def plot_parent_offspring_heatmap(diploid_offspring_dict, Resu_path):
+    """
+    Create heatmap plots comparing each parent's fitness (Parent 1 and Parent 2)
+    with the offspring fitness for each fitness model.
+    
+    Parameters:
+        diploid_offspring_dict (dict): Keys are fitness model names ("dominant", "recessive", "codominant")
+            and values are lists of DiploidOrganism instances.
+        Resu_path (str): The directory path where the heatmap images will be saved.
+    """
+    # List of models (modify if your simulation uses a different set)
+    models = ["dominant", "recessive", "codominant"]
+    
+    # Initialize an empty figure with three subplots (one per model)
+    fig, axs = plt.subplots(1, 3, figsize=(18, 6))
+    
+    # Loop over each model in the dictionary
+    for i, model in enumerate(models):
+        offspring_list = diploid_offspring_dict.get(model, [])
+        if not offspring_list:
+            continue  # Skip if no data for this model
+        
+        # Extract the fitness values for Parent 1, Parent 2, and the Offspring.
+        parent1_fit = [d.parent1_fitness for d in offspring_list]
+        parent2_fit = [d.parent2_fitness for d in offspring_list]
+        offspring_fit = [d.fitness for d in offspring_list]
+        
+        # (Optional) If you want to create separate heatmaps for each parent:
+        # h1, xedges1, yedges1 = np.histogram2d(parent1_fit, offspring_fit, bins=20)
+        # h2, xedges2, yedges2 = np.histogram2d(parent2_fit, offspring_fit, bins=20)
+        # You can plot these separately if desired.
+        
+        # Now, to create one combined heatmap:
+        combined_parent_fit = np.concatenate((parent1_fit, parent2_fit))
+        # Duplicate offspring_fit so that each parent's fitness has a corresponding offspring value.
+        combined_offspring_fit = np.concatenate((offspring_fit, offspring_fit))
+        
+        h3, xedges3, yedges3 = np.histogram2d(combined_parent_fit, combined_offspring_fit, bins=20)
+        im3 = axs[i].imshow(
+            h3.T,
+            origin='lower',
+            aspect='auto',
+            extent=[xedges3[0], xedges3[-1], yedges3[0], yedges3[-1]],
+            cmap='viridis'
+        )
+        axs[i].set_xlabel('Parent Fitness')
+        axs[i].set_ylabel('Offspring Fitness')
+        axs[i].set_title(f"{model.capitalize()} Model: Both Parents vs Offspring")
+        fig.colorbar(im3, ax=axs[i], label='Count')
+    
+    plt.tight_layout()
+    output_path = os.path.join(Resu_path, 'parent_offspring_heatmap.png')
+    plt.savefig(output_path, dpi=300, bbox_inches='tight')
+    plt.close()
+
+
+def plot_parent_fitness_vs_offspring_distance(diploid_dict, Resu_path):
+    """
+    Create a scatter plot comparing average parent fitness to genomic distance between offspring.
+    
+    Parameters:
+    -----------
+    diploid_dict : dict
+        Dictionary with fitness models as keys and lists of DiploidOrganism instances as values
+    Resu_path : str
+        Path to save the resulting plot
+        
+    Returns:
+    --------
+    None
+    """
+    # Create figure with subplots for each model
+    fig, axes = plt.subplots(1, 3, figsize=(18, 6))
+    
+    # Define colors and models
+    models = ["dominant", "recessive", "codominant"]
+    colors = {"dominant": "blue", "recessive": "green", "codominant": "purple"}
+    
+    # Process each model
+    for model, ax in zip(models, axes):
+        diploids = diploid_dict.get(model, [])
+        if not diploids:
+            continue
+            
+        # Calculate genomic distances and parent fitnesses
+        distances = []
+        parent_fitnesses = []
+        
+        # Compare each pair of diploid organisms
+        for i, org1 in enumerate(diploids):
+            for j, org2 in enumerate(diploids):
+                if i < j:  # Only compare each pair once
+                    # Calculate genomic distance using effective genomes
+                    distance = calculate_genomic_distance(
+                        org1._get_effective_genome(),
+                        org2._get_effective_genome()
+                    )
+                    
+                    # Calculate average parent fitness for both organisms
+                    avg_parent_fitness = (org1.avg_parent_fitness + org2.avg_parent_fitness) / 2
+                    
+                    distances.append(distance)
+                    parent_fitnesses.append(avg_parent_fitness)
+        
+        # Create scatter plot
+        ax.scatter(distances, parent_fitnesses, alpha=0.5, c=colors[model])
+        
+        # Add trend line
+        if distances:
+            z = np.polyfit(distances, parent_fitnesses, 1)
+            p = np.poly1d(z)
+            x_trend = np.linspace(min(distances), max(distances), 100)
+            ax.plot(x_trend, p(x_trend), '--', color='red')
+        
+        # Customize plot
+        ax.set_title(f"{model.capitalize()} Model")
+        ax.set_xlabel("Genomic Distance Between Offspring")
+        ax.set_ylabel("Average Parent Fitness")
+        ax.grid(True)
+    
+    plt.suptitle("Parent Fitness vs Offspring Genomic Distance")
+    plt.tight_layout(rect=[0, 0.03, 1, 0.95])
+    
+    # Save plot
+    output_path = os.path.join(Resu_path, 'parent_fitness_vs_offspring_distance.png')
+    plt.savefig(output_path, dpi=300, bbox_inches='tight')
+    plt.close()
+
 
 #######################################################################
 # Simulation functions
@@ -672,6 +808,15 @@ def main():
     log.info("Creating parent-offspring fitness comparison plot")
     plot_parent_offspring_fitness(diploid_offspring_dict, Resu_path)
 
+    #plot parent fitness vs offspring genomic distance
+    log.info("Creating parent fitness vs offspring genomic distance plot")
+    plot_parent_fitness_vs_offspring_distance(diploid_offspring_dict, Resu_path)
+    
+    # plot heatmap parent-offspring fitness comparison
+    log.info("Creating parent-offspring fitness heatmap plot")
+    plot_parent_offspring_heatmap(diploid_offspring_dict, Resu_path)
+   
+   
    # Log the final results
     log.info("Simulation complete")
 
