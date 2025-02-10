@@ -157,4 +157,21 @@ This model can be used in **evolutionary biology** to:
 - Model epistasis (interactions between genes).
 - Investigate the role of sparse gene interactions in evolutionary dynamics.
 
-If you'd like, I can run a simulation based on these functions or visualize the fitness landscape for you!
+
+---
+
+### Explain on the claculstion contrabotion of beta abd rho in the sumilation
+
+Epistasis and Fitness Landscape Complexity
+The parameters beta and rho in your interaction matrix (J) and external fields (h) control how fitness is calculated. These can significantly affect inheritance and mutation effects.
+
+Epistasis (beta)
+High beta (close to 1): Strong epistatic interactions — fitness depends heavily on combinations of multiple mutations.
+Low beta (close to 0): Weak epistasis — fitness is more additive, with each mutation affecting fitness independently.
+Sparsity (rho)
+High rho: More connections between sites — mutations affect many other sites (more complex fitness landscape).
+Low rho: Fewer connections — simpler fitness landscape.
+To simulate different modes of inheritance related to epistasis:
+
+Use high beta for strongly epistatic traits (like metabolic networks).
+Use low beta for additive traits (like polygenic inheritance).

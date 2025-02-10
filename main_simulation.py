@@ -5,6 +5,8 @@ import logging as log
 import cmn  # Assume all the previously defined functions are in the cmn module
 import matplotlib.pyplot as plt
 import networkx as nx
+from scipy.cluster.hierarchy import dendrogram, linkage
+import argparse as ap
 
 # init logging
 log.basicConfig(level=log.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(lineno)d - %(message)s')
@@ -25,13 +27,11 @@ class Organism:
         self.F_off = cmn.calc_F_off(self.sigma, self.h, self.J)
         self.fitness = cmn.compute_fit_slow(self.sigma, self.h, self.J, self.F_off)
         self.relative_fitness = self.fitness  # Relative to initial ancestor
-    
+        
     def mutate(self):
-        """Mutate the sequence to optimize its fitness."""
-        flip_seq = cmn.relax_sk(self.sigma, self.h, self.J)
-        self.sigma = cmn.compute_sigma_from_hist(self.sigma, flip_seq, len(flip_seq))
-        self.fitness = cmn.compute_fit_slow(self.sigma, self.h, self.J, self.F_off)
-        log.info(f"Organism {self.id} mutated: fitness={self.fitness}")
+        """Mutate the sequence by flipping a random spin."""
+        idx = cmn.sswm_flip(self.sigma, self.h, self.J)
+        self.sigma[idx] *= -1
     
     def reproduce(self):
         """Reproduce and generate two offspring."""
@@ -41,7 +41,7 @@ class Organism:
 
 def run_simulation(num_generations):
     """Run the evolution simulation for num_generations."""
-    initial_sigma = cmn.init_sigma(1000)  # Starting sequence
+    initial_sigma = cmn.init_sigma(1024)  # Starting sequence
     ancestor = Organism(initial_sigma)  # Create the initial organism
     
     population = [ancestor]
@@ -59,7 +59,6 @@ def run_simulation(num_generations):
         population = next_generation  # Move to the next generation
     
     return all_organisms
-
 
 def plot_fitness_trajectory(organisms):
     """Plot the fitness trajectory over generations."""
@@ -95,9 +94,13 @@ def plot_lineage_tree(organisms):
     
     plt.title("Lineage Tree")
     plt.savefig("lineage_tree.png")
+        
+def main():
+    aparser = ap.ArgumentParser(description="Run the sexy yeast simulation")
+    aparser.add_argument("--num_generations", type=int, help="Number of generations to simulate" , default=5)
+    args = aparser.parse_args()
 
-if __name__ == "__main__":
-    all_organisms = run_simulation(2)
+    all_organisms = run_simulation(args.num_generations)
     log.info(f"Total number of organisms: {len(all_organisms)}")
     log.info(f"Fitness of the last organism: {all_organisms[-1].fitness}")
     log.info(f"Fitness of the ancestor: {all_organisms[0].fitness}")
@@ -105,3 +108,5 @@ if __name__ == "__main__":
     plot_fitness_trajectory(all_organisms)
     plot_lineage_tree(all_organisms)
 
+if __name__ == "__main__":
+    main()

@@ -350,3 +350,27 @@ def curate_sigma_list(sigma_0, hist, flips):
         sigma_t = compute_sigma_from_hist(sigma_0, hist, flip)
         sigma_list.append(sigma_t)
     return sigma_list
+
+
+def neutral_mutate(sigma):
+    """
+    Apply random mutations without checking fitness.
+
+    Parameters
+    ----------
+    sigma : numpy.ndarray
+        The spin configuration.
+    mutation_rate : float
+        The mutation rate.
+
+    Returns
+    -------
+    numpy.ndarray
+        The mutated spin configuration.
+    """
+    mutation_rate = 1 / len(sigma)
+    num_mutations = int(len(sigma) * mutation_rate)
+    flip_indices = np.random.choice(range(len(sigma)), num_mutations, replace=False)
+    for idx in flip_indices:
+        sigma[idx] *= -1  # Flip the spin
+    return sigma
