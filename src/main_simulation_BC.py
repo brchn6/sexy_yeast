@@ -6,6 +6,7 @@ import networkx as nx
 import argparse as ap
 from collections import defaultdict
 import logging as log
+import os
 
 #######################################################################
 # Helper functions
@@ -114,16 +115,40 @@ def calc_F_off(sigma_init, his, Jijs):
     """
     return compute_fit_slow(sigma_init, his, Jijs) - 1
 
-def init_log():
+def init_log(Resu_path):
     """Initialize logging"""
     # init logging
     log.basicConfig(level=log.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(lineno)d - %(message)s')
     # add file handler
-    fh = log.FileHandler("sexy_yeast.log", mode='w')
+    path=os.path.join(Resu_path, 'sexy_yeast.log')
+    fh = log.FileHandler(path, mode='w')
     fh.setLevel(log.INFO)
     log.getLogger().addHandler(fh)
 
     return log
+
+def calculate_genomic_distance(genome1, genome2):
+    """
+    Calculate Hamming distance between two genomes.
+    
+    Parameters:
+    -----------
+    genome1, genome2 : numpy.ndarray
+        Binary genome arrays (-1 or 1)
+        
+    Returns:
+    --------
+    float
+        Normalized Hamming distance (0 to 1)
+    """
+    if len(genome1) != len(genome2):
+        raise ValueError("Genomes must be the same length")
+    
+    # Calculate Hamming distance (number of positions where genomes differ)
+    differences = np.sum(genome1 != genome2)
+    
+    # Normalize by genome length
+    return differences / len(genome1)
 
 #######################################################################
 # Classes
@@ -172,7 +197,7 @@ class Environment:
     def calculate_fitness(self, genome):
         """Calculate fitness for a given genome"""
         # Calculate energy (negative fitness)
-        energy = compute_fit_slow(genome, self.h, self.J , F_off=0.01)
+        energy = compute_fit_slow(genome, self.h, self.J , F_off=0.0)
         # Convert energy to fitness (higher is better)
         return 1.0 / (1.0 + np.exp(-energy))
     
@@ -184,6 +209,7 @@ class Environment:
             mutated[i] *= -1
             effects.append(self.calculate_fitness(mutated))
         return np.array(effects)
+
 class Organism:
     def __init__(self, environment, genome=None, generation=0, parent_id=None):
         self.id = str(uuid.uuid4())
@@ -223,51 +249,58 @@ class Organism:
         
         return child1, child2
 
-class DiploidOrganism(Organism):
+class DiploidOrganism:
     def __init__(self, parent1, parent2, fitness_model="dominant"):
         if len(parent1.genome) != len(parent2.genome):
             raise ValueError("Parent genomes must have the same length.")
         
-        self.genome = [(a, b) for a, b in zip(parent1.genome, parent2.genome)]
+        # Store both alleles from parents
+        self.allele1 = parent1.genome.copy()
+        self.allele2 = parent2.genome.copy()
         self.fitness_model = fitness_model
-        self.environment = parent1.environment  # Same environment as parents
+        self.environment = parent1.environment
+        self.id = str(uuid.uuid4())
+        self.parent1_id = parent1.id
+        self.parent2_id = parent2.id
         self.fitness = self.calculate_fitness()
     
-    def calculate_fitness(self):
+    def _get_effective_genome(self):
+        """
+        Calculate effective genome based on inheritance model.
+        Returns a single array of -1/1 values representing the phenotype.
+        """
         if self.fitness_model == "dominant":
-            return self._calculate_dominant_fitness()
+            # If either allele is -1, the result is -1 (dominant)
+            return np.where((self.allele1 == -1) | (self.allele2 == -1), -1, 1)
+        
         elif self.fitness_model == "recessive":
-            return self._calculate_recessive_fitness()
+            # if both alleles are -1, the result is -1 (recessive)
+            return np.where((self.allele1 == -1) & (self.allele2 == -1), -1, 1)
+        
         elif self.fitness_model == "codominant":
-            return self._calculate_codominant_fitness()
+            # Average effect of both alleles
+            return np.where(self.allele1 == self.allele2, self.allele1, 1)
+        
         else:
-            raise ValueError("Unknown fitness model: Choose 'dominant', 'recessive', or 'codominant'")
-    
-    def _calculate_dominant_fitness(self):
-        fitness = 1.0
-        for a, b in self.genome:
-            if a == -1 or b == -1:
-                fitness -= 0.1  # Reduce fitness for each bad site
-        return max(fitness, 0.0)  # Ensure fitness is non-negative
+            raise ValueError(f"Unknown fitness model: {self.fitness_model}")
 
-    def _calculate_recessive_fitness(self):
-        fitness = 1.0
-        for a, b in self.genome:
-            if a == -1 and b == -1:
-                fitness -= 0.2  # Reduce fitness more if both alleles are bad
-        return max(fitness, 0.0)
-
-    def _calculate_codominant_fitness(self):
-        fitness = 1.0
-        for a, b in self.genome:
-            bad_alleles = [a, b].count(-1)
-            fitness -= 0.05 * bad_alleles  # Reduce fitness by 0.05 for each bad allele
-        return max(fitness, 0.0)
+    def calculate_fitness(self):
+        """
+        Calculate fitness using the Sherrington-Kirkpatrick model
+        with the effective genome based on inheritance model
+        """
+        effective_genome = self._get_effective_genome()
+        return compute_fit_slow(
+            effective_genome,
+            self.environment.h,
+            self.environment.J,
+            F_off=0.0
+        )
 
 #######################################################################
 # plotting functions
 #######################################################################
-def plot_detailed_fitness(individual_fitness, generation_stats):
+def plot_detailed_fitness(individual_fitness, generation_stats, Resu_path):
     """Create detailed fitness visualizations"""
     # Create figure with multiple subplots
     fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 10))
@@ -307,10 +340,11 @@ def plot_detailed_fitness(individual_fitness, generation_stats):
     ax2.grid(True)
     
     plt.tight_layout()
-    plt.savefig('detailed_fitness.png', dpi=300, bbox_inches='tight')
+    # /home/labs/pilpel/barc/sexy_yeast/Resu save into Resu from the dir __file__
+    plt.savefig(os.path.join(Resu_path, 'fitness_detailed.png'), dpi=300, bbox_inches='tight')
     plt.close()
 
-def plot_relationship_tree(organisms):
+def plot_relationship_tree(organisms, Resu_path):
     """Create a visual representation of the evolutionary tree"""
     G = nx.DiGraph()
     
@@ -350,44 +384,136 @@ def plot_relationship_tree(organisms):
     
     plt.title("Evolutionary Relationship Tree")
     plt.tight_layout()
-    plt.savefig("relationship_tree.png", bbox_inches='tight', dpi=300)
+    plt.savefig(os.path.join(Resu_path, 'relationship_tree.png'), dpi=300, bbox_inches='tight')
     plt.close()
 
-def plot_fitness_comparison(parents, diploid_offspring, fitness_model):
+def plot_fitness_comparisons(last_generation, diploid_offspring_dict, Resu_path):
     """
-    Plot a scatter plot comparing the fitness of haploid parents (average of two parents)
-    against the fitness of their diploid offspring.
-
+    Create separate fitness comparison plots for each inheritance model.
+    
     Parameters:
     ----------
-    parents: list of Organism
-        List of haploid parent organisms (must be paired).
-    diploid_offspring: list of DiploidOrganism
-        List of diploid offspring.
-    fitness_model: str
-        The inheritance model used for diploid fitness calculation (displayed in the title).
+    last_generation : list
+        List of haploid parent organisms
+    diploid_offspring_dict : dict
+        Dictionary with fitness models as keys and lists of diploid offspring as values
+    Resu_path : str
+        Path to save the results
     """
-    parent_fitness = []
-    diploid_fitness = []
-
-    for i in range(0, len(parents) - 1, 2):
-        parent1 = parents[i]
-        parent2 = parents[i + 1]
-        avg_parent_fitness = (parent1.fitness + parent2.fitness) / 2
-        parent_fitness.append(avg_parent_fitness)
-        diploid_fitness.append(diploid_offspring[i // 2].fitness)
-
-    plt.figure(figsize=(10, 6))
-    plt.scatter(parent_fitness, diploid_fitness, alpha=0.7, edgecolors='k')
-    plt.plot([min(parent_fitness), max(parent_fitness)], [min(parent_fitness), max(parent_fitness)], 'r--', label='y = x')
-    plt.xlabel("Average Fitness of Haploid Parents")
-    plt.ylabel("Fitness of Diploid Offspring")
-    plt.title(f"Fitness Comparison (Model: {fitness_model.capitalize()})")
-    plt.grid(True)
-    plt.legend()
+    # Create subplots for all models in one figure
+    fig, axes = plt.subplots(1, 3, figsize=(18, 6))
+    fig.suptitle('Parent vs Offspring Fitness Comparison Across Models', fontsize=14)
+    
+    for idx, (model, offspring) in enumerate(diploid_offspring_dict.items()):
+        # Get fitness values
+        parent_fitness = [org.fitness for org in last_generation]
+        diploid_fitness = [org.fitness for org in offspring]
+        
+        log.info(f"Parent fitness: {parent_fitness} the len is {len(parent_fitness)}")
+        log.info(f"Diploid fitness: {diploid_fitness} the len is {len(diploid_fitness)}")
+        
+        # Create scatter plot
+        ax = axes[idx]
+        ax.scatter(diploid_fitness, parent_fitness, alpha=0.7, edgecolors='k')
+        
+        # Add diagonal line
+        min_val = min(min(parent_fitness), min(diploid_fitness))
+        max_val = max(max(parent_fitness), max(diploid_fitness))
+        ax.plot([min_val, max_val], [min_val, max_val], 'r--', label='y=x')
+        
+        # Customize subplot
+        ax.set_xlabel('Diploid Offspring Fitness')
+        ax.set_ylabel('Parent Fitness')
+        ax.set_title(f'{model.capitalize()} Model')
+        ax.legend()
+        ax.grid(True)
+        
+        # Add statistical annotations
+        stats_text = (f'Mean Parent: {np.mean(parent_fitness):.3f}\n'
+                     f'Mean Offspring: {np.mean(diploid_fitness):.3f}')
+        ax.text(0.05, 0.95, stats_text, transform=ax.transAxes, 
+                bbox=dict(facecolor='white', alpha=0.8),
+                verticalalignment='top')
+    
     plt.tight_layout()
-    plt.savefig(f"fitness_comparison_{fitness_model}.png", dpi=300)
+    plt.savefig(os.path.join(Resu_path, 'fitness_comparisons.png'), dpi=300, bbox_inches='tight')
     plt.close()
+    
+def plot_fitness_GD(last_generation, diploid_offspring_dict , Resu_path):
+    """
+    Create scatter plots of parent fitness vs genomic distance for each inheritance model.
+    
+    Parameters:
+    -----------
+    last_generation : list
+        List of haploid parent organisms
+    diploid_offspring_dict : dict
+        Dictionary with fitness models as keys and lists of diploid offspring as values
+    """
+    # Create subplots for all models in one figure
+    fig, axes = plt.subplots(1, 3, figsize=(18, 6))
+    fig.suptitle('Parent Fitness vs Genomic Distance Across Models', fontsize=14)
+    
+    # Store correlation coefficients for each model
+    correlations = {}
+    
+    for idx, (model, offspring) in enumerate(diploid_offspring_dict.items()):
+        parent_fitness = []
+        genomic_distances = []
+        
+        # Calculate fitness and genomic distances for each pair
+        for i in range(0, len(last_generation) - 1, 2):
+            parent1 = last_generation[i]
+            parent2 = last_generation[i + 1]
+            
+            # Calculate average parent fitness
+            avg_parent_fitness = (parent1.fitness + parent2.fitness) / 2
+            parent_fitness.append(avg_parent_fitness)
+            
+            # Calculate genomic distance between parents
+            gd = calculate_genomic_distance(parent1.genome, parent2.genome)
+            genomic_distances.append(gd)
+        
+        # Calculate correlation
+        correlation = np.corrcoef(genomic_distances, parent_fitness)[0, 1]
+        correlations[model] = correlation
+        
+        # Create scatter plot
+        ax = axes[idx]
+        scatter = ax.scatter(genomic_distances, parent_fitness, 
+                           alpha=0.7, edgecolors='k', c=offspring[0:len(parent_fitness)].fitness,
+                           cmap='viridis')
+        
+        # Add trend line
+        z = np.polyfit(genomic_distances, parent_fitness, 1)
+        p = np.poly1d(z)
+        x_range = np.linspace(min(genomic_distances), max(genomic_distances), 100)
+        ax.plot(x_range, p(x_range), 'r--', 
+                label=f'Correlation: {correlation:.3f}')
+        
+        # Add colorbar for offspring fitness
+        plt.colorbar(scatter, ax=ax, label='Offspring Fitness')
+        
+        # Customize subplot
+        ax.set_xlabel('Genomic Distance')
+        ax.set_ylabel('Average Parent Fitness')
+        ax.set_title(f'{model.capitalize()} Model')
+        ax.legend()
+        ax.grid(True)
+        
+        # Add statistical annotations
+        stats_text = (f'Mean GD: {np.mean(genomic_distances):.3f}\n'
+                     f'Mean Parent Fitness: {np.mean(parent_fitness):.3f}\n'
+                     f'GD-Fitness Corr: {correlation:.3f}')
+        ax.text(0.05, 0.95, stats_text, transform=ax.transAxes, 
+                bbox=dict(facecolor='white', alpha=0.8),
+                verticalalignment='top')
+    
+    plt.tight_layout()
+    plt.savefig(os.path.join(Resu_path, 'fitness_GD.png'), dpi=300, bbox_inches='tight')
+    plt.close()
+    
+    return correlations
 
 #######################################################################
 # Simulation functions
@@ -446,17 +572,98 @@ def run_simulation(num_generations, environment):
     
     return all_organisms, individual_fitness, generation_stats
 
-def mate_last_generation(last_generation, fitness_model="dominant"):
-    """Mate haploid organisms to create diploid organisms."""
-    diploid_offspring = []
-    for i in range(0, len(last_generation) - 1, 2):
-        parent1 = last_generation[i]
-        parent2 = last_generation[i + 1]
-        diploid_offspring.append(DiploidOrganism(parent1, parent2, fitness_model))
+def mate_last_generation(last_generation, fitness_models=["dominant", "recessive", "codominant"]):
+    """
+    Mate haploid organisms to create diploid organisms using multiple fitness models.
     
-    print(f"Created {len(diploid_offspring)} diploid organisms using {fitness_model} model.")
+    Parameters:
+    -----------
+    last_generation : list
+        List of haploid organisms from the last generation
+    fitness_models : list
+        List of fitness models to use for creating diploid offspring
+        
+    Returns:
+    --------
+    dict : Dictionary with fitness models as keys and lists of diploid organisms as values
+    """
+    diploid_offspring = defaultdict(list)
+    
+    # Ensure even number of parents
+    if len(last_generation) % 2 != 0:
+        last_generation = last_generation[:-1]
+    
+    # Create diploid offspring for each fitness model
+    for model in fitness_models:
+        for i in range(0, len(last_generation), 2):
+            parent1 = last_generation[i]
+            parent2 = last_generation[i + 1]
+            
+            offspring = DiploidOrganism(parent1, parent2, fitness_model=model)
+            diploid_offspring[model].append(offspring)
+            
+        print(f"Created {len(diploid_offspring[model])} diploid organisms using {model} model")
+    
     return diploid_offspring
 
+def analyze_diploid_fitness(diploid_offspring_dict, last_generation, Resu_path):
+    """
+    Analyze and compare fitness between haploid parents and diploid offspring
+    for different inheritance models.
+    
+    Parameters:
+    -----------
+    diploid_offspring_dict : dict
+        Dictionary with fitness models as keys and lists of diploid organisms as values
+    last_generation : list
+        List of haploid organisms from the last generation
+    """
+    # Create plots and get correlations
+    correlations = plot_fitness_comparisons(last_generation, diploid_offspring_dict, Resu_path)
+    
+    # Print detailed analysis for each model
+    log.info("\nDetailed Fitness Analysis:")
+    log.info("=" * 50)
+    
+    for model, offspring in diploid_offspring_dict.items():
+        parent_fitness = []
+        offspring_fitness = []
+        
+        for i in range(0, len(last_generation) - 1, 2):
+            parent1 = last_generation[i]
+            parent2 = last_generation[i + 1]
+            avg_parent_fitness = (parent1.fitness + parent2.fitness) / 2
+            parent_fitness.append(avg_parent_fitness)
+            offspring_fitness.append(offspring[i // 2].fitness)
+            
+        log.info(f"\nModel: {model.upper()}")
+        log.info("=" * 50)
+        log.info(f"Parent Statistics:")
+        log.info(f"  Mean Fitness: {np.mean(parent_fitness):.4f}")
+        log.info(f"  Std Deviation: {np.std(parent_fitness):.4f}")
+        log.info(f"  Min Fitness: {np.min(parent_fitness):.4f}")
+        log.info(f"  Max Fitness: {np.max(parent_fitness):.4f}")
+        
+        log.info(f"\nOffspring Statistics:")
+        log.info(f"  Mean Fitness: {np.mean(offspring_fitness):.4f}")
+        log.info(f"  Std Deviation: {np.std(offspring_fitness):.4f}")
+        log.info(f"  Min Fitness: {np.min(offspring_fitness):.4f}")
+        log.info(f"  Max Fitness: {np.max(offspring_fitness):.4f}")
+        
+        log.info(f"\nComparison:")
+        log.info(f"  Correlation: {correlations[model]:.4f}")
+        log.info(f"  Mean Fitness Difference: {np.mean(offspring_fitness) - np.mean(parent_fitness):.4f}")
+        
+        # Calculate if offspring tend to be better or worse than parents
+        better_count = sum(1 for i in range(len(offspring_fitness)) 
+                         if offspring_fitness[i] > parent_fitness[i])
+        log.info(f"  Offspring better than parents: {better_count}/{len(offspring_fitness)}")
+        log.info(f"  Percentage better: {(better_count/len(offspring_fitness))*100:.1f}%")
+
+    
+    # Create scatter plots of fitness vs genomic distance
+    plot_fitness_GD(last_generation, diploid_offspring_dict, Resu_path) 
+                      
 #######################################################################
 # Main function
 #######################################################################
@@ -466,39 +673,41 @@ def main():
     aparser.add_argument("--genome_size", type=int, default=100, help="Size of the genome")
     aparser.add_argument("--beta", type=float, default=0.5, help="Beta parameter")
     aparser.add_argument("--rho", type=float, default=0.25, help="Rho parameter")
-    aparser.add_argument("--model", type=str, default="dominant", help="Fitness model for diploid organisms") # dominant, recessive, codominant
-
 
     args = aparser.parse_args()
 
+    # val Resu directory one back from the dir __file__
+    if not os.path.exists(os.path.join(os.path.dirname(os.path.dirname(__file__)), 'Resu')):
+        os.makedirs(os.path.join(os.path.dirname(os.path.dirname(__file__)), 'Resu'))
+
+    Resu_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'Resu')
+    
     # init logging
-    log = init_log()
+    log = init_log(Resu_path)
     
     # Create environment
     environment = Environment(genome_size=args.genome_size, beta=args.beta, rho=args.rho)
     log.info(f"Environment created with genome size = {args.genome_size}, beta = {args.beta}, rho = {args.rho}")
 
-    
     # Run simulation
-    log.info(f"Running simulation for {args.generations} generations")
     all_organisms, individual_fitness, generation_stats = run_simulation(args.generations, environment)
-    log.info(f"all_organisms: {all_organisms}")
-    log.info(f"individual_fitness: {individual_fitness}")
-    log.info(f"generation_stats: {generation_stats}")
 
     # Create visualizations
-    print("Creating visualizations...")
-    plot_detailed_fitness(individual_fitness, generation_stats)
-    plot_relationship_tree(all_organisms)  # Original relationship tree visualization
+    log.info("Creating visualizations")
+    plot_detailed_fitness(individual_fitness, generation_stats , Resu_path)
+    plot_relationship_tree(all_organisms, Resu_path)
 
     # Mate last generation to create diploid organisms
+    log.info("Mating last generation to create diploid organisms")
     last_generation = [org for org in all_organisms if org.generation == args.generations]
-    diploid_offspring = mate_last_generation(last_generation, fitness_model=args.model)
-    # Create fitness comparison plot
-    plot_fitness_comparison(last_generation, diploid_offspring, fitness_model=args.model)
+    fitness_models = ["dominant", "recessive", "codominant"]
+    diploid_offspring_dict = mate_last_generation(last_generation, fitness_models=fitness_models)
+    analyze_diploid_fitness(diploid_offspring_dict, last_generation, Resu_path)
 
-    
-    print("Simulation complete! Check detailed_fitness.png and relationship_tree.png")
+
+
+   # Log the final results
+    log.info("Simulation complete")
 
 if __name__ == "__main__":
     main()
