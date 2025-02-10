@@ -12,6 +12,9 @@ import pandas as pd
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import seaborn as sns
+from enum import Enum
+from itertools import combinations, product
+import random
 
 #######################################################################
 # Helper functions
@@ -155,6 +158,40 @@ def calculate_genomic_distance(genome1, genome2):
     # Normalize by genome length
     return differences / len(genome1)
 
+def assign_mating_types(organisms):
+    """Randomly assign mating types A or alpha to organisms."""
+    typed_organisms = []
+    for org in organisms:
+        mating_type = random.choice([MatingType.A, MatingType.ALPHA])
+        typed_organisms.append(OrganismWithMatingType(org, mating_type))
+    return typed_organisms
+
+def calculate_mating_statistics(diploid_offspring):
+    """
+    Calculate statistics about the mating outcomes.
+    
+    Parameters:
+    -----------
+    diploid_offspring : dict
+        Dictionary containing diploid organisms by fitness model
+        
+    Returns:
+    --------
+    dict : Dictionary containing mating statistics
+    """
+    stats = {}
+    for model, organisms in diploid_offspring.items():
+        model_stats = {
+            'total_offspring': len(organisms),
+            'avg_offspring_fitness': np.mean([org.fitness for org in organisms]),
+            'max_offspring_fitness': np.max([org.fitness for org in organisms]),
+            'min_offspring_fitness': np.min([org.fitness for org in organisms]),
+            'avg_parent_fitness': np.mean([org.avg_parent_fitness for org in organisms]),
+            'fitness_improvement': np.mean([org.fitness - org.avg_parent_fitness for org in organisms])
+        }
+        stats[model] = model_stats
+    return stats
+
 #######################################################################
 # Classes
 #######################################################################
@@ -255,12 +292,20 @@ class Organism:
         
         return child1, child2
 
+class MatingStrategy(Enum):
+    ONE_TO_ONE = "one_to_one"
+    ALL_VS_ALL = "all_vs_all"
+    MATING_TYPES = "mating_types"
+
+class MatingType(Enum):
+    A = "A"
+    ALPHA = "alpha"
+
 class DiploidOrganism:
-    def __init__(self, parent1, parent2, fitness_model="dominant"):
+    def __init__(self, parent1, parent2, fitness_model="dominant", mating_type=None):
         if len(parent1.genome) != len(parent2.genome):
             raise ValueError("Parent genomes must have the same length.")
         
-        # Store both alleles from parents
         self.allele1 = parent1.genome.copy()
         self.allele2 = parent2.genome.copy()
         self.fitness_model = fitness_model
@@ -268,34 +313,23 @@ class DiploidOrganism:
         self.id = str(uuid.uuid4())
         self.parent1_id = parent1.id
         self.parent2_id = parent2.id
+        self.mating_type = mating_type
         self.fitness = self.calculate_fitness()
         self.avg_parent_fitness = (parent1.fitness + parent2.fitness) / 2
-    
+
     def _get_effective_genome(self):
-        """
-        Calculate effective genome based on inheritance model.
-        Returns a single array of -1/1 values representing the phenotype.
-        """
+        """Calculate effective genome based on inheritance model."""
         if self.fitness_model == "dominant":
-            # If either allele is -1, the result is -1 (dominant)
             return np.where((self.allele1 == -1) | (self.allele2 == -1), -1, 1)
-        
         elif self.fitness_model == "recessive":
-            # if both alleles are -1, the result is -1 (recessive)
             return np.where((self.allele1 == -1) & (self.allele2 == -1), -1, 1)
-        
         elif self.fitness_model == "codominant":
-            # Average effect of both alleles
             return np.where(self.allele1 == self.allele2, self.allele1, 1)
-        
         else:
             raise ValueError(f"Unknown fitness model: {self.fitness_model}")
 
     def calculate_fitness(self):
-        """
-        Calculate fitness using the Sherrington-Kirkpatrick model
-        with the effective genome based on inheritance model
-        """
+        """Calculate fitness using the effective genome."""
         effective_genome = self._get_effective_genome()
         return compute_fit_slow(
             effective_genome,
@@ -303,6 +337,11 @@ class DiploidOrganism:
             self.environment.J,
             F_off=0.0
         )
+
+class OrganismWithMatingType:
+    def __init__(self, organism, mating_type):
+        self.organism = organism
+        self.mating_type = mating_type
 
 #######################################################################
 # plotting functions
@@ -516,14 +555,16 @@ def run_simulation(num_generations, environment):
     
     return all_organisms, individual_fitness, generation_stats
 
-def mate_last_generation(last_generation, fitness_models=["dominant", "recessive", "codominant"]):
+def mate_last_generation(last_generation, mating_strategy=MatingStrategy.ONE_TO_ONE, fitness_models=["dominant", "recessive", "codominant"]):
     """
-    Mate haploid organisms to create diploid organisms using multiple fitness models.
+    Enhanced mating function supporting multiple mating strategies.
     
     Parameters:
     -----------
     last_generation : list
         List of haploid organisms from the last generation
+    mating_strategy : MatingStrategy
+        The mating strategy to use
     fitness_models : list
         List of fitness models to use for creating diploid offspring
         
@@ -533,23 +574,54 @@ def mate_last_generation(last_generation, fitness_models=["dominant", "recessive
     """
     diploid_offspring = defaultdict(list)
     
-    # Ensure even number of parents
-    if len(last_generation) % 2 != 0:
-        last_generation = last_generation[:-1]
+    if mating_strategy == MatingStrategy.ONE_TO_ONE:
+        # Ensure even number of parents
+        if len(last_generation) % 2 != 0:
+            last_generation = last_generation[:-1]
+            
+        for model in fitness_models:
+            for i in range(0, len(last_generation), 2):
+                parent1 = last_generation[i]
+                parent2 = last_generation[i + 1]
+                offspring = DiploidOrganism(parent1, parent2, fitness_model=model)
+                diploid_offspring[model].append(offspring)
+                
+    elif mating_strategy == MatingStrategy.ALL_VS_ALL:
+        for model in fitness_models:
+            # Generate all possible pairs using combinations
+            for parent1, parent2 in combinations(last_generation, 2):
+                offspring = DiploidOrganism(parent1, parent2, fitness_model=model)
+                diploid_offspring[model].append(offspring)
+                
+    elif mating_strategy == MatingStrategy.MATING_TYPES:
+        # Assign mating types to organisms
+        typed_organisms = assign_mating_types(last_generation)
+        
+        # Separate organisms by mating type
+        type_a = [org for org in typed_organisms if org.mating_type == MatingType.A]
+        type_alpha = [org for org in typed_organisms if org.mating_type == MatingType.ALPHA]
+        
+        for model in fitness_models:
+            # Mate all type A with all type alpha
+            for a_org, alpha_org in product(type_a, type_alpha):
+                offspring = DiploidOrganism(
+                    a_org.organism, 
+                    alpha_org.organism, 
+                    fitness_model=model,
+                    mating_type=random.choice([MatingType.A, MatingType.ALPHA])
+                )
+                diploid_offspring[model].append(offspring)
     
-    # Create diploid offspring for each fitness model
+    else:
+        raise ValueError(f"Unknown mating strategy: {mating_strategy}")
+    
+    # Log results
     for model in fitness_models:
-        for i in range(0, len(last_generation), 2):
-            parent1 = last_generation[i]
-            parent2 = last_generation[i + 1]
-            
-            offspring = DiploidOrganism(parent1, parent2, fitness_model=model)
-            diploid_offspring[model].append(offspring)
-            
-        log.info(f"Created {len(diploid_offspring[model])} diploid organisms using {model} model")
+        log.info(f"Created {len(diploid_offspring[model])} diploid organisms using {model} model "
+                f"with {mating_strategy.value} strategy")
     
     return diploid_offspring
-                      
+
 #######################################################################
 # Main function
 #######################################################################
@@ -559,6 +631,7 @@ def main():
     aparser.add_argument("--genome_size", type=int, default=100, help="Size of the genome")
     aparser.add_argument("--beta", type=float, default=0.5, help="Beta parameter")
     aparser.add_argument("--rho", type=float, default=0.25, help="Rho parameter")
+    aparser.add_argument("--mating_strategy ", type=str, default="one_to_one", help=["one_to_one", "all_vs_all", "mating_types"]) #["one_to_one", "all_vs_all", "mating_types"],
 
     args = aparser.parse_args()
 
@@ -584,11 +657,16 @@ def main():
     plot_relationship_tree(all_organisms, Resu_path)
 
     # Mate last generation to create diploid organisms
-    log.info("Mating last generation to create diploid organisms")
+    log.info(f"Mating last generation to create diploid organisms the mating strategy is {MatingStrategy.MATING_TYPES}")
     last_generation = [org for org in all_organisms if org.generation == args.generations]
     # Mate last generation to create diploid organisms for each model
-    fitness_models = ["dominant", "recessive", "codominant"]
-    diploid_offspring_dict = mate_last_generation(last_generation, fitness_models=fitness_models)
+    diploid_offspring_dict = mate_last_generation(
+        last_generation, 
+        mating_strategy=MatingStrategy.MATING_TYPES,
+        fitness_models=["dominant", "recessive", "codominant"]
+    )
+
+    mating_stats = calculate_mating_statistics(diploid_offspring_dict)
     
     # Plot parent-offspring fitness comparison
     log.info("Creating parent-offspring fitness comparison plot")
@@ -602,7 +680,7 @@ if __name__ == "__main__":
     
 
 """
-example usage:
-/home/labs/pilpel/barc/sexy_yeast/main_simulation_BC.py --generations 10 --genome_size 100 --beta 0.5 --rho 0.25
+example usage: 
+/home/labs/pilpel/barc/sexy_yeast/src/main_simulation_BC.py --generations 10 --genome_size 100 --beta 0.5 --rho 0.25 --mating_strategy all_vs_all
 """
 
