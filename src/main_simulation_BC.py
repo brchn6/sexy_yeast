@@ -560,7 +560,6 @@ def plot_parent_offspring_heatmap(diploid_offspring_dict, Resu_path):
     plt.savefig(output_path, dpi=300, bbox_inches='tight')
     plt.close()
 
-
 def plot_parent_fitness_vs_offspring_distance(diploid_dict, Resu_path):
     """
     Create a scatter plot comparing average parent fitness to genomic distance between offspring.
@@ -632,7 +631,6 @@ def plot_parent_fitness_vs_offspring_distance(diploid_dict, Resu_path):
     output_path = os.path.join(Resu_path, 'parent_fitness_vs_offspring_distance.png')
     plt.savefig(output_path, dpi=300, bbox_inches='tight')
     plt.close()
-
 
 #######################################################################
 # Simulation functions
@@ -768,14 +766,16 @@ def main():
     aparser.add_argument("--beta", type=float, default=0.5, help="Beta parameter")
     aparser.add_argument("--rho", type=float, default=0.25, help="Rho parameter")
     aparser.add_argument("--mating_strategy ", type=str, default="one_to_one", help=["one_to_one", "all_vs_all", "mating_types"]) #["one_to_one", "all_vs_all", "mating_types"],
+    aparser.add_argument("--output_dir", type=str, default="Resu", help="Output directory for results")
+
 
     args = aparser.parse_args()
 
     # val Resu directory one back from the dir __file__
-    if not os.path.exists(os.path.join(os.path.dirname(os.path.dirname(__file__)), 'Resu')):
-        os.makedirs(os.path.join(os.path.dirname(os.path.dirname(__file__)), 'Resu'))
+    if not os.path.exists(os.path.join(os.path.dirname(os.path.dirname(__file__)), args.output_dir)):
+        os.makedirs(os.path.join(os.path.dirname(os.path.dirname(__file__)), args.output_dir))
 
-    Resu_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'Resu')
+    Resu_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), args.output_dir)
     
     # init logging
     log = init_log(Resu_path)
@@ -826,6 +826,6 @@ if __name__ == "__main__":
 
 """
 example usage: 
-/home/labs/pilpel/barc/sexy_yeast/src/main_simulation_BC.py --generations 10 --genome_size 100 --beta 0.5 --rho 0.25 --mating_strategy all_vs_all
+bsub -q gsla-cpu -R rusage[mem=42000] /home/labs/pilpel/barc/sexy_yeast/src/main_simulation_BC.py --generations 10 --genome_size 100 --beta 0.5 --rho 0.25 --mating_strategy all_vs_all --output_dir /home/labs/pilpel/barc/sexy_yeast/10gen
 """
 
