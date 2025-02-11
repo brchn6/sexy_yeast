@@ -1,0 +1,22 @@
+Starting /home/labs/pilpel/barc/sexy_yeast/src/main_simulation_BC.py with arguments: Namespace(generations=4, genome_size=128, beta=0.5, rho=0.25, output_dir='/home/labs/pilpel/barc/sexy_yeast/tttt', **{'mating_strategy ': 'all_vs_all'})
+Command line: /home/labs/pilpel/barc/sexy_yeast/src/main_simulation_BC.py --generations 4 --genome_size 128 --beta 0.5 --rho 0.25 --mating_strategy all_vs_all --output_dir /home/labs/pilpel/barc/sexy_yeast/tttt
+Output directory: /home/labs/pilpel/barc/sexy_yeast/tttt
+CPU count: 256
+Total memory (GB): 1511.01
+Start time: 2025-02-11 11:12:19
+
+LSF job details: LSF Job ID: None, LSF Queue: None, LSF Hosts: None, LSF Job Name: None, LSF Command: None
+Environment created with genome size = 128, beta = 0.5, rho = 0.25
+Generation 1: Pop size = 2, Avg fitness = 0.9851, Max fitness = 0.9851, Min fitness = 0.9851
+Generation 2: Pop size = 4, Avg fitness = 0.8483, Max fitness = 0.9967, Min fitness = 0.4264
+Generation 3: Pop size = 8, Avg fitness = 0.9117, Max fitness = 0.9997, Min fitness = 0.4264
+Generation 4: Pop size = 16, Avg fitness = 0.8978, Max fitness = 1.0000, Min fitness = 0.2021
+Creating visualizations
+Mating last generation to create diploid organisms the mating strategy is MatingStrategy.MATING_TYPES
+Created 60 diploid organisms using dominant model with mating_types strategy
+Created 60 diploid organisms using recessive model with mating_types strategy
+Created 60 diploid organisms using codominant model with mating_types strategy
+Creating parent-offspring fitness comparison plot
+Creating parent fitness vs offspring genomic distance plot
+Creating parent-offspring fitness heatmap plot
+Simulation complete

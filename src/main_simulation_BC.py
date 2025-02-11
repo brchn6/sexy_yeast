@@ -15,6 +15,45 @@ import seaborn as sns
 from enum import Enum
 from itertools import combinations, product
 import random
+import sys
+import time
+import psutil
+
+
+#######################################################################
+# SetYp functions
+#######################################################################
+
+def _get_lsf_job_details() -> list[str]:
+    """
+    Retrieves environment variables for LSF job details, if available.
+    """
+    lsf_job_id = os.environ.get('LSB_JOBID')    # Job ID
+    lsf_queue = os.environ.get('LSB_QUEUE')     # Queue name
+    lsf_host = os.environ.get('LSB_HOSTS')      # Hosts allocated
+    lsf_job_name = os.environ.get('LSB_JOBNAME')  # Job name
+    lsf_command = os.environ.get('LSB_CMD')     # Command used to submit job
+
+    details = [
+        f"LSF Job ID: {lsf_job_id}",
+        f"LSF Queue: {lsf_queue}",
+        f"LSF Hosts: {lsf_host}",
+        f"LSF Job Name: {lsf_job_name}",
+        f"LSF Command: {lsf_command}"
+    ]
+    return details
+
+def init_log(Resu_path):
+    """Initialize logging"""
+    # init logging
+    log.basicConfig(level=log.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(lineno)d - %(message)s')
+    # add file handler
+    path=os.path.join(Resu_path, 'sexy_yeast.log')
+    fh = log.FileHandler(path, mode='w')
+    fh.setLevel(log.INFO)
+    log.getLogger().addHandler(fh)
+
+    return log
 
 #######################################################################
 # Helper functions
@@ -122,18 +161,6 @@ def calc_F_off(sigma_init, his, Jijs):
         The fitness offset.
     """
     return compute_fit_slow(sigma_init, his, Jijs) - 1
-
-def init_log(Resu_path):
-    """Initialize logging"""
-    # init logging
-    log.basicConfig(level=log.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(lineno)d - %(message)s')
-    # add file handler
-    path=os.path.join(Resu_path, 'sexy_yeast.log')
-    fh = log.FileHandler(path, mode='w')
-    fh.setLevel(log.INFO)
-    log.getLogger().addHandler(fh)
-
-    return log
 
 def calculate_genomic_distance(genome1, genome2):
     """
@@ -779,6 +806,17 @@ def main():
     
     # init logging
     log = init_log(Resu_path)
+
+    # Initialize logging
+    log.info(
+        f"Starting {__file__} with arguments: {args}\n"
+        f"Command line: {' '.join(sys.argv)}\n"
+        f"Output directory: {Resu_path}\n"
+        f"CPU count: {os.cpu_count()}\n"
+        f"Total memory (GB): {psutil.virtual_memory().total/1024**3:.2f}\n"
+        f"Start time: {time.strftime('%Y-%m-%d %H:%M:%S')}\n"
+    )
+    log.info(f"LSF job details: {', '.join(_get_lsf_job_details())}")
     
     # Create environment
     environment = Environment(genome_size=args.genome_size, beta=args.beta, rho=args.rho)
