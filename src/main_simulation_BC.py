@@ -730,34 +730,35 @@ def plot_parent_offspring_fitness(diploid_dict, Resu_path , mating_strategy):
 
 def plot_parent_fitness_vs_offspring_distance(diploid_dict, Resu_path, mating_strategy):
     """
-    Optimized version of the plotting function with improved performance.
-    
-    Key improvements:
-    1. Vectorized distance calculations
-    2. Pre-allocation of arrays
-    3. Optimized pair generation
-    4. Cached property calculations
-    5. Reduced redundant computations
-    6. Optimized memory usage
+    Memory-optimized version of the plotting function that processes data in chunks
+    and uses numpy arrays for matplotlib compatibility.
     """
+    def process_chunk(organisms_chunk):
+        """Process a chunk of organisms and return distances and fitnesses"""
+        distances = []
+        fitnesses = []
+        
+        # Get effective genomes for the chunk
+        chunk_genomes = [org._get_effective_genome() for org in organisms_chunk]
+        chunk_fitnesses = [org.avg_parent_fitness for org in organisms_chunk]
+        
+        # Process all pairs within the chunk
+        for idx1 in range(len(chunk_genomes)):
+            for idx2 in range(idx1 + 1, len(chunk_genomes)):
+                distance = calculate_genomic_distance(chunk_genomes[idx1], chunk_genomes[idx2])
+                avg_fitness = (chunk_fitnesses[idx1] + chunk_fitnesses[idx2]) / 2
+                distances.append(distance)
+                fitnesses.append(avg_fitness)
+        
+        return np.array(distances, dtype=np.float32), np.array(fitnesses, dtype=np.float32)
 
+    def chunk_iterator(organisms, chunk_size=1000):
+        """Iterate over organisms in chunks"""
+        for i in range(0, len(organisms), chunk_size):
+            yield organisms[i:min(i + chunk_size, len(organisms))]
 
     models = ["dominant", "recessive", "codominant"]
     fig, axs = plt.subplots(1, 3, figsize=(18, 6), sharex=True, sharey=True)
-
-    def calculate_distances_batch(genomes):
-        """Vectorized distance calculation for a batch of genomes"""
-        return np.array([
-            calculate_genomic_distance(g1, g2) 
-            for g1, g2 in combinations(genomes, 2)
-        ])
-
-    def get_fitness_pairs(organisms):
-        """Efficient extraction of fitness pairs"""
-        return np.array([
-            (org1.avg_parent_fitness + org2.avg_parent_fitness) / 2 
-            for org1, org2 in combinations(organisms, 2)
-        ])
 
     for idx, model in enumerate(models):
         diploids = diploid_dict.get(model, [])
@@ -765,70 +766,56 @@ def plot_parent_fitness_vs_offspring_distance(diploid_dict, Resu_path, mating_st
             axs[idx].set_title(f"{model.capitalize()} Model (No Data)")
             continue
 
-        # Pre-compute effective genomes to avoid repeated calls
-        effective_genomes = [org._get_effective_genome() for org in diploids]
+        # Calculate total number of chunks for progress bar
+        total_chunks = (len(diploids) + 999) // 1000  # ceiling division
         
-        # Vectorized calculations
-        distances = calculate_distances_batch(effective_genomes)
-        parent_fitnesses = get_fitness_pairs(diploids)
-
-        if len(distances) > 0:
-            # Create mask for valid data points
-            valid_mask = ~np.isnan(distances) & ~np.isnan(parent_fitnesses)
-            distances = distances[valid_mask]
-            parent_fitnesses = parent_fitnesses[valid_mask]
-
-            # Plotting with optimized parameters
-            ax = axs[idx]
+        # Process and plot data in chunks
+        for chunk in tqdm(chunk_iterator(diploids), 
+                         total=total_chunks,
+                         desc=f"Processing {model} model"):
+            chunk_distances, chunk_fitnesses = process_chunk(chunk)
             
-            # Scatter plot with reduced alpha for large datasets
-            alpha = min(0.7, 5000 / len(distances))
-            ax.scatter(distances, parent_fitnesses, alpha=alpha, color="blue", label="Data", s=10)
+            if len(chunk_distances) > 0:
+                axs[idx].scatter(chunk_distances, chunk_fitnesses, 
+                               alpha=0.1, color="blue", s=1, 
+                               rasterized=True)
+            
+            # Force garbage collection after each chunk
+            gc.collect()
 
-            # Efficient regression calculations
-            if len(distances) > 1:
-                # Linear regression
-                z = np.polyfit(distances, parent_fitnesses, 1)
-                x_range = np.linspace(distances.min(), distances.max(), 100)
-                ax.plot(x_range, np.poly1d(z)(x_range), color='red', label='Linear Fit')
+        # Calculate and plot trend lines if enough data points
+        if len(diploids) > 1:
+            # Get one final chunk for trend calculation
+            distances, fitnesses = process_chunk(diploids[:1000])
+            if len(distances) > 0:
+                # Linear fit
+                z = np.polyfit(distances, fitnesses, 1)
+                x_range = np.linspace(min(distances), max(distances), 100)
+                axs[idx].plot(x_range, np.poly1d(z)(x_range), 
+                            color='red', label='Linear Fit')
 
-                # Quadratic regression
-                z2 = np.polyfit(distances, parent_fitnesses, 2)
-                ax.plot(x_range, np.poly1d(z2)(x_range), '--', color='orange', label='Quadratic Fit')
+                # Quadratic fit
+                z2 = np.polyfit(distances, fitnesses, 2)
+                axs[idx].plot(x_range, np.poly1d(z2)(x_range), '--', 
+                            color='orange', label='Quadratic Fit')
 
-                # KDE plot with optimized parameters
-                try:
-                    if (np.std(distances) > 1e-6 and 
-                        np.std(parent_fitnesses) > 1e-6 and 
-                        len(distances) >= 50):  # Only plot KDE if enough points
-                        sns.kdeplot(
-                            x=distances,
-                            y=parent_fitnesses,
-                            ax=ax,
-                            levels=5,  # Reduced number of levels
-                            cmap='Blues',
-                            fill=True,
-                            alpha=0.3,
-                            label="KDE",
-                            bw_adjust=1.5  # Increased bandwidth for smoother plot
-                        )
-                except Exception as e:
-                    print(f"Warning: KDE plot failed for {model} model: {e}")
+        # Set plot properties
+        axs[idx].set_title(f"{model.capitalize()} Model - {len(diploids)} organisms")
+        axs[idx].set_xlabel('Genomic Distance Between Offspring')
+        axs[idx].set_ylabel('Average Parent Fitness')
+        axs[idx].grid(True, alpha=0.3)
+        axs[idx].legend()
 
-            # Set plot properties
-            ax.set_title(f"{model.capitalize()} Model")
-            ax.set_xlabel('Genomic Distance Between Offspring')
-            ax.set_ylabel('Average Parent Fitness')
-            ax.grid(True, alpha=0.3)
-            ax.legend()
-
-    plt.suptitle(f"Genomic Distance vs Average Parent Fitness Comparison ({mating_strategy} Strategy)")
+    plt.suptitle(f"Genomic Distance vs Average Parent Fitness Comparison\n({mating_strategy} Strategy)")
     plt.tight_layout(rect=[0, 0.03, 1, 0.95])
 
-    # Save with optimized parameters
+    # Save with optimized parameters for large datasets
     output_path = os.path.join(Resu_path, f'parent_fitness_vs_offspring_distance_{mating_strategy}.png')
     plt.savefig(output_path, dpi=300, bbox_inches='tight')
     plt.close()
+    
+    # Final garbage collection
+    gc.collect()
 
 def plot_parent_offspring_heatmap(diploid_offspring_dict, Resu_path):
     """
@@ -889,7 +876,7 @@ def plot_parent_offspring_heatmap(diploid_offspring_dict, Resu_path):
 #######################################################################
 # Simulation functions
 #######################################################################
-def run_simulation(num_generations, environment, max_population_size=10000):
+def run_simulation(num_generations, environment, max_population_size=100000):
     """Run the evolutionary simulation with garbage collection and memory optimization."""
     initial_organism = Organism(environment)
     population = [initial_organism]
