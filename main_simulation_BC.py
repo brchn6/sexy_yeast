@@ -75,7 +75,7 @@ def compute_fit_slow(sigma, his, Jijs, F_off=0.0):
     """
     return sigma @ (his + 0.5 * Jijs @ sigma) - F_off
 
-def init_J(N, beta, rho, random_state=None,):
+def init_J(N, beta, rho, random_state=None):
     """
     Initialize the coupling matrix for the Sherrington-Kirkpatrick model with sparsity.
 
@@ -185,6 +185,52 @@ def calculate_genomic_distance(genome1, genome2):
     
     # Normalize by genome length
     return differences / len(genome1)
+
+def calculate_prs(genome):
+    """
+    Calculate a simple Polygenic Risk Score (PRS) for a genome.
+    For this simulation, we use an effect size of 1 for all SNPs.
+    
+    Parameters:
+    -----------
+    genome : numpy.ndarray
+        Array of -1 or 1 values representing the genome
+        
+    Returns:
+    --------
+    float
+        The calculated PRS score
+    """
+    # Convert from -1/1 encoding to 0/1 encoding for SNP risk alleles
+    # We'll consider a value of 1 as the "risk allele"
+    risk_alleles = (genome + 1) / 2  # Converts -1 to 0 and 1 to 1
+    
+    # Calculate PRS (sum of risk alleles * effect size)
+    # Since effect_size = 1 for all SNPs, this is just the sum of risk alleles
+    prs = np.sum(risk_alleles)
+    
+    return prs
+
+def calculate_diploid_prs(diploid_organism):
+    """
+    Calculate the Polygenic Risk Score (PRS) for a diploid organism
+    based on its effective genome.
+    
+    Parameters:
+    -----------
+    diploid_organism : DiploidOrganism
+        The diploid organism to calculate PRS for
+        
+    Returns:
+    --------
+    float
+        The calculated PRS score
+    """
+    # Get the effective genome based on inheritance model
+    effective_genome = diploid_organism._get_effective_genome()
+    
+    # Calculate PRS using the effective genome
+    return calculate_prs(effective_genome)
 
 def assign_mating_types(organisms):
     """Randomly assign mating types A or alpha to organisms."""
@@ -401,7 +447,8 @@ class Environment:
         # Calculate energy (negative fitness)
         energy = compute_fit_slow(genome, self.h, self.J , F_off=0.0)
         # Convert energy to fitness (higher is better)
-        return 1.0 / (1.0 + np.exp(-energy))
+        # return 1.0 / (1.0 + np.exp(-energy))
+        return energy
     
     def calculate_mutation_effects(self, genome):
         """Calculate the effect of each possible mutation"""
@@ -539,7 +586,8 @@ class DiploidOrganism:
             self.environment.J,
             F_off=0.0
         )
-        return 1.0 / (1.0 + np.exp(-energy))
+        # return 1.0 / (1.0 + np.exp(-energy))
+        return energy
 
 class OrganismWithMatingType:
     def __init__(self, organism, mating_type):
@@ -636,7 +684,7 @@ def plot_relationship_tree(organisms, Resu_path):
     plt.savefig(os.path.join(Resu_path, 'relationship_tree.png'), dpi=300, bbox_inches='tight')
     plt.close()
 
-def plot_parent_offspring_fitness(diploid_dict, Resu_path , mating_strategy):
+def plot_parent_offspring_fitness(diploid_dict, Resu_path, mating_strategy):
     """
     Create a figure with three subplots (one per diploid model) where the x-axis shows 
     the mean parent fitness and the y-axis shows the offspring fitness. Includes both linear 
@@ -649,6 +697,8 @@ def plot_parent_offspring_fitness(diploid_dict, Resu_path , mating_strategy):
         and values as lists of DiploidOrganism instances.
     Resu_path : str
         Directory path where the resulting figure will be saved.
+    mating_strategy : str
+        The mating strategy used (for plot title)
     """
     # Define the order, colors, and markers for the three models
     models = ["dominant", "recessive", "codominant"]
@@ -656,7 +706,6 @@ def plot_parent_offspring_fitness(diploid_dict, Resu_path , mating_strategy):
 
     # Create subplots
     fig, axs = plt.subplots(1, 3, figsize=(18, 6), sharex=True, sharey=True)
-
 
     for idx, model in enumerate(tqdm(models, desc=f"Processing Models for {mating_strategy} Strategy")):
         diploids = diploid_dict.get(model, [])
@@ -666,6 +715,12 @@ def plot_parent_offspring_fitness(diploid_dict, Resu_path , mating_strategy):
 
         offspring_fitness = np.array([org.fitness for org in diploids])
         parent_fitness = np.array([org.avg_parent_fitness for org in diploids])
+
+        # Customize subplot - Do this for all cases
+        axs[idx].set_title(f"{model.capitalize()} Model - {len(diploids)} \n mating strategy: {mating_strategy}")
+        axs[idx].set_xlabel("Mean Parent Fitness")
+        axs[idx].set_ylabel("Offspring Fitness")
+        axs[idx].grid(True)
 
         if len(offspring_fitness) > 10 and len(parent_fitness) > 10:
             # Scatter plot
@@ -678,145 +733,89 @@ def plot_parent_offspring_fitness(diploid_dict, Resu_path , mating_strategy):
                 label="Data"
             )
 
-            # Linear regression line
+            # Linear regression line and R²
+            linear_r = np.corrcoef(parent_fitness, offspring_fitness)[0,1]
+            linear_r2 = linear_r**2
+            linear_z = np.polyfit(parent_fitness, offspring_fitness, 1)
+            linear_model = np.poly1d(linear_z)
+            
+            # Plot linear fit
             sns.regplot(
                 x=parent_fitness, 
                 y=offspring_fitness, 
                 ax=axs[idx], 
                 scatter=False, 
-                line_kws={'color': 'red', 'label': 'Linear Fit'}
+                line_kws={'color': 'red', 'label': f'Linear (R²: {linear_r2:.2f})'}
             )
 
-            # Quadratic (second-order polynomial) regression line
-            quadratic_fit = np.poly1d(np.polyfit(parent_fitness, offspring_fitness, 2))
+            # Quadratic (second-order polynomial) regression line and R²
+            quad_z = np.polyfit(parent_fitness, offspring_fitness, 2)
+            quad_model = np.poly1d(quad_z)
             x_vals = np.linspace(parent_fitness.min(), parent_fitness.max(), 500)
-            axs[idx].plot(x_vals, quadratic_fit(x_vals), color='orange', linestyle='--', label='Quadratic Fit')
+            
+            # Calculate quadratic R²
+            y_pred = quad_model(parent_fitness)
+            y_mean = np.mean(offspring_fitness)
+            quad_r2 = 1 - (np.sum((offspring_fitness - y_pred)**2) / 
+                          np.sum((offspring_fitness - y_mean)**2))
+            
+            # Plot quadratic fit
+            axs[idx].plot(x_vals, quad_model(x_vals), 
+                       color='orange', linestyle='--', 
+                       label=f'Quadratic (R²: {quad_r2:.2f})')
 
             # KDE plot
             try:
-                if len(offspring_fitness) > 10 and len(parent_fitness) > 10:  # Ensure enough data points
-                    if np.std(parent_fitness) > 1e-6 and np.std(offspring_fitness) > 1e-6:  # Ensure variability
-                        sns.kdeplot(
-                            x=parent_fitness, 
-                            y=offspring_fitness, 
-                            ax=axs[idx], 
-                            cmap="Blues", 
-                            fill=True, 
-                            alpha=0.3, 
-                            label="KDE"
-                        )
+                if np.std(parent_fitness) > 1e-6 and np.std(offspring_fitness) > 1e-6:  # Ensure variability
+                    sns.kdeplot(
+                        x=parent_fitness, 
+                        y=offspring_fitness, 
+                        ax=axs[idx], 
+                        cmap="Blues", 
+                        fill=True, 
+                        alpha=0.3, 
+                        label="KDE"
+                    )
             except Exception as e:
                 print(f"Warning: KDE plot failed for model {model} due to {e}")
+                
             # Add reference line (x = y)
             min_val = min(parent_fitness.min(), offspring_fitness.min())
             max_val = max(parent_fitness.max(), offspring_fitness.max())
             axs[idx].plot([min_val, max_val], [min_val, max_val], 'k--', label='x = y')
-        
-        # Customize subplot
-        axs[idx].set_title(f"{model.capitalize()} Model - {len(diploids)} \n mating strategy: {mating_strategy}")
-        axs[idx].set_xlabel("Mean Parent Fitness")
-        axs[idx].set_ylabel("Offspring Fitness")
-        axs[idx].grid(True)
-        axs[idx].legend()
+            
+            # Add detailed statistics text
+            from scipy import stats
+            slope, intercept, _, p_value, std_err = stats.linregress(parent_fitness, offspring_fitness)
+            spearman_r, spearman_p = stats.spearmanr(parent_fitness, offspring_fitness)
+            
+            stats_text = (f"Linear R²: {linear_r2:.3f}\n"
+                         f"Slope: {slope:.3f}\n"
+                         f"Quad R²: {quad_r2:.3f}\n"
+                         f"Pearson r: {linear_r:.3f}\n"
+                         f"Spearman ρ: {spearman_r:.3f}")
+            
+            axs[idx].text(0.05, 0.95, stats_text, transform=axs[idx].transAxes, 
+                       fontsize=9, va='top', ha='left',
+                       bbox=dict(boxstyle='round', facecolor='white', alpha=0.8))
+            
+            # Only add legend if we have labeled elements
+            axs[idx].legend(loc='lower right')
+        else:
+            # No data message for plots without enough data
+            axs[idx].text(0.5, 0.5, f"Insufficient data points ({len(diploids)})\nNeed > 10 for analysis", 
+                        ha='center', va='center', transform=axs[idx].transAxes,
+                        bbox=dict(boxstyle="round,pad=0.3", fc="lightyellow", ec="orange", alpha=0.8))
 
     # Add a global title
     plt.suptitle("Parent vs Offspring Fitness Comparison\n(Mean Parent Fitness on X-Axis)")
     plt.tight_layout(rect=[0, 0.03, 1, 0.95])
 
     # Save the figure
-    output_path = os.path.join(Resu_path, 'parent_offspring_fitness.png')
-    plt.savefig(output_path, dpi=300, bbox_inches='tight')
-    plt.close()
-
-def plot_parent_fitness_vs_offspring_distance(diploid_dict, Resu_path, mating_strategy):
-    """
-    Memory-optimized version of the plotting function that processes data in chunks
-    and uses numpy arrays for matplotlib compatibility.
-    """
-    def process_chunk(organisms_chunk):
-        """Process a chunk of organisms and return distances and fitnesses"""
-        distances = []
-        fitnesses = []
-        
-        # Get effective genomes for the chunk
-        chunk_genomes = [org._get_effective_genome() for org in organisms_chunk]
-        chunk_fitnesses = [org.avg_parent_fitness for org in organisms_chunk]
-        
-        # Process all pairs within the chunk
-        for idx1 in range(len(chunk_genomes)):
-            for idx2 in range(idx1 + 1, len(chunk_genomes)):
-                distance = calculate_genomic_distance(chunk_genomes[idx1], chunk_genomes[idx2])
-                avg_fitness = (chunk_fitnesses[idx1] + chunk_fitnesses[idx2]) / 2
-                distances.append(distance)
-                fitnesses.append(avg_fitness)
-        
-        return np.array(distances, dtype=np.float32), np.array(fitnesses, dtype=np.float32)
-
-    def chunk_iterator(organisms, chunk_size=1000):
-        """Iterate over organisms in chunks"""
-        for i in range(0, len(organisms), chunk_size):
-            yield organisms[i:min(i + chunk_size, len(organisms))]
-
-    models = ["dominant", "recessive", "codominant"]
-    fig, axs = plt.subplots(1, 3, figsize=(18, 6), sharex=True, sharey=True)
-
-    for idx, model in enumerate(models):
-        diploids = diploid_dict.get(model, [])
-        if not diploids:
-            axs[idx].set_title(f"{model.capitalize()} Model (No Data)")
-            continue
-
-        # Calculate total number of chunks for progress bar
-        total_chunks = (len(diploids) + 999) // 1000  # ceiling division
-        
-        # Process and plot data in chunks
-        for chunk in tqdm(chunk_iterator(diploids), 
-                         total=total_chunks,
-                         desc=f"Processing {model} model"):
-            chunk_distances, chunk_fitnesses = process_chunk(chunk)
-            
-            if len(chunk_distances) > 0:
-                axs[idx].scatter(chunk_distances, chunk_fitnesses, 
-                               alpha=0.1, color="blue", s=1, 
-                               rasterized=True)
-            
-            # Force garbage collection after each chunk
-            gc.collect()
-
-        # Calculate and plot trend lines if enough data points
-        if len(diploids) > 1:
-            # Get one final chunk for trend calculation
-            distances, fitnesses = process_chunk(diploids[:1000])
-            if len(distances) > 0:
-                # Linear fit
-                z = np.polyfit(distances, fitnesses, 1)
-                x_range = np.linspace(min(distances), max(distances), 100)
-                axs[idx].plot(x_range, np.poly1d(z)(x_range), 
-                            color='red', label='Linear Fit')
-
-                # Quadratic fit
-                z2 = np.polyfit(distances, fitnesses, 2)
-                axs[idx].plot(x_range, np.poly1d(z2)(x_range), '--', 
-                            color='orange', label='Quadratic Fit')
-
-        # Set plot properties
-        axs[idx].set_title(f"{model.capitalize()} Model - {len(diploids)} organisms")
-        axs[idx].set_xlabel('Genomic Distance Between Offspring')
-        axs[idx].set_ylabel('Average Parent Fitness')
-        axs[idx].grid(True, alpha=0.3)
-        axs[idx].legend()
-
-    plt.suptitle(f"Genomic Distance vs Average Parent Fitness Comparison\n({mating_strategy} Strategy)")
-    plt.tight_layout(rect=[0, 0.03, 1, 0.95])
-
-    # Save with optimized parameters for large datasets
-    output_path = os.path.join(Resu_path, f'parent_fitness_vs_offspring_distance_{mating_strategy}.png')
+    output_path = os.path.join(Resu_path, f'parent_offspring_fitness_{mating_strategy}.png')
     plt.savefig(output_path, dpi=300, bbox_inches='tight')
     plt.close()
     
-    # Final garbage collection
-    gc.collect()
-
 def plot_parent_offspring_heatmap(diploid_offspring_dict, Resu_path):
     """
     Create heatmap plots comparing Parent 1 fitness (x-axis) and Parent 2 fitness (y-axis),
@@ -872,6 +871,403 @@ def plot_parent_offspring_heatmap(diploid_offspring_dict, Resu_path):
     output_path = os.path.join(Resu_path, 'parent_offspring_heatmap.png')
     plt.savefig(output_path, dpi=300, bbox_inches='tight')
     plt.close()
+
+def plot_offspring_vs_min_max_parent_fitness(diploid_dict, Resu_path, mating_strategy):
+    """
+    Create plots comparing offspring fitness to minimum and maximum parent fitness.
+    
+    Parameters:
+    -----------
+    diploid_dict : dict
+        Dictionary with keys as fitness model names and values as lists of DiploidOrganism instances.
+    Resu_path : str
+        Directory path where the resulting figures will be saved.
+    mating_strategy : str
+        The mating strategy used (for plot title)
+    """
+    # Define the order and colors for the three models
+    models = ["dominant", "recessive", "codominant"]
+    colors = {"dominant": "blue", "recessive": "green", "codominant": "purple"}
+    
+    # Plot 1: Offspring vs Max Parent Fitness
+    fig1, axs1 = plt.subplots(1, 3, figsize=(18, 6), sharex=True, sharey=True)
+    
+    # Plot 2: Offspring vs Min Parent Fitness
+    fig2, axs2 = plt.subplots(1, 3, figsize=(18, 6), sharex=True, sharey=True)
+
+    for idx, model in enumerate(tqdm(models, desc=f"Creating min-max plots for {mating_strategy}")):
+        diploids = diploid_dict.get(model, [])
+        if not diploids:
+            axs1[idx].set_title(f"{model.capitalize()} Model (No Data)")
+            axs2[idx].set_title(f"{model.capitalize()} Model (No Data)")
+            continue  # Skip if no data for this model
+        
+        # Extract data
+        offspring_fitness = np.array([org.fitness for org in diploids])
+        min_parent_fitness = np.array([min(org.parent1_fitness, org.parent2_fitness) for org in diploids])
+        max_parent_fitness = np.array([max(org.parent1_fitness, org.parent2_fitness) for org in diploids])
+        
+        # Set up basic subplot properties for both plots regardless of data amount
+        axs1[idx].set_title(f"{model.capitalize()} Model - {len(diploids)}")
+        axs1[idx].set_xlabel("Max Parent Fitness")
+        axs1[idx].set_ylabel("Offspring Fitness")
+        axs1[idx].grid(True)
+        
+        axs2[idx].set_title(f"{model.capitalize()} Model - {len(diploids)}")
+        axs2[idx].set_xlabel("Min Parent Fitness")
+        axs2[idx].set_ylabel("Offspring Fitness")
+        axs2[idx].grid(True)
+        
+        if len(offspring_fitness) > 10:
+            # --- PLOT 1: Offspring vs Max Parent Fitness ---
+            
+            # Scatter plot
+            sns.scatterplot(
+                x=max_parent_fitness, 
+                y=offspring_fitness, 
+                ax=axs1[idx], 
+                alpha=0.7, 
+                color=colors[model], 
+                label="Data"
+            )
+            
+            # Linear regression line
+            sns.regplot(
+                x=max_parent_fitness, 
+                y=offspring_fitness, 
+                ax=axs1[idx], 
+                scatter=False, 
+                line_kws={'color': 'red', 'label': 'Linear Fit'}
+            )
+            
+            # Calculate linear R²
+            max_parent_r_linear = np.corrcoef(max_parent_fitness, offspring_fitness)[0,1]
+            max_parent_r2_linear = max_parent_r_linear**2
+            
+            # Quadratic regression
+            max_z2 = np.polyfit(max_parent_fitness, offspring_fitness, 2)
+            max_quad_model = np.poly1d(max_z2)
+            max_x_vals = np.linspace(max_parent_fitness.min(), max_parent_fitness.max(), 500)
+            
+            # Calculate quadratic R²
+            max_y_pred = max_quad_model(max_parent_fitness)
+            max_y_mean = np.mean(offspring_fitness)
+            max_r2_quad = 1 - (np.sum((offspring_fitness - max_y_pred)**2) / 
+                             np.sum((offspring_fitness - max_y_mean)**2))
+            
+            # Plot quadratic fit
+            axs1[idx].plot(max_x_vals, max_quad_model(max_x_vals), 
+                         color='orange', linestyle='--', 
+                         label=f'Quadratic Fit')
+            
+            # Add statistics text
+            max_stats_text = (f"Linear R²: {max_parent_r2_linear:.3f}\n"
+                            f"Quadratic R²: {max_r2_quad:.3f}\n"
+                            f"Pearson r: {max_parent_r_linear:.3f}")
+            
+            axs1[idx].text(0.05, 0.95, max_stats_text, transform=axs1[idx].transAxes, 
+                         fontsize=9, va='top', ha='left',
+                         bbox=dict(boxstyle='round', facecolor='white', alpha=0.8))
+            
+            # KDE plot
+            try:
+                if np.std(max_parent_fitness) > 1e-6 and np.std(offspring_fitness) > 1e-6:
+                    sns.kdeplot(
+                        x=max_parent_fitness, 
+                        y=offspring_fitness, 
+                        ax=axs1[idx], 
+                        cmap="Blues", 
+                        fill=True, 
+                        alpha=0.3, 
+                        label="KDE"
+                    )
+            except Exception as e:
+                print(f"Warning: KDE plot failed for max parent in model {model} due to {e}")
+            
+            # Add reference line (x = y)
+            min_val = min(max_parent_fitness.min(), offspring_fitness.min())
+            max_val = max(max_parent_fitness.max(), offspring_fitness.max())
+            axs1[idx].plot([min_val, max_val], [min_val, max_val], 'k--', label='x = y')
+            
+            # Add legend
+            axs1[idx].legend(loc='lower right')
+            
+            # --- PLOT 2: Offspring vs Min Parent Fitness ---
+            
+            # Scatter plot
+            sns.scatterplot(
+                x=min_parent_fitness, 
+                y=offspring_fitness, 
+                ax=axs2[idx], 
+                alpha=0.7, 
+                color=colors[model], 
+                label="Data"
+            )
+            
+            # Linear regression line
+            sns.regplot(
+                x=min_parent_fitness, 
+                y=offspring_fitness, 
+                ax=axs2[idx], 
+                scatter=False, 
+                line_kws={'color': 'red', 'label': 'Linear Fit'}
+            )
+            
+            # Calculate linear R²
+            min_parent_r_linear = np.corrcoef(min_parent_fitness, offspring_fitness)[0,1]
+            min_parent_r2_linear = min_parent_r_linear**2
+            
+            # Quadratic regression
+            min_z2 = np.polyfit(min_parent_fitness, offspring_fitness, 2)
+            min_quad_model = np.poly1d(min_z2)
+            min_x_vals = np.linspace(min_parent_fitness.min(), min_parent_fitness.max(), 500)
+            
+            # Calculate quadratic R²
+            min_y_pred = min_quad_model(min_parent_fitness)
+            min_y_mean = np.mean(offspring_fitness)
+            min_r2_quad = 1 - (np.sum((offspring_fitness - min_y_pred)**2) / 
+                             np.sum((offspring_fitness - min_y_mean)**2))
+            
+            # Plot quadratic fit
+            axs2[idx].plot(min_x_vals, min_quad_model(min_x_vals), 
+                         color='orange', linestyle='--', 
+                         label=f'Quadratic Fit')
+            
+            # Add statistics text
+            min_stats_text = (f"Linear R²: {min_parent_r2_linear:.3f}\n"
+                            f"Quadratic R²: {min_r2_quad:.3f}\n"
+                            f"Pearson r: {min_parent_r_linear:.3f}")
+            
+            axs2[idx].text(0.05, 0.95, min_stats_text, transform=axs2[idx].transAxes, 
+                         fontsize=9, va='top', ha='left',
+                         bbox=dict(boxstyle='round', facecolor='white', alpha=0.8))
+            
+            # KDE plot
+            try:
+                if np.std(min_parent_fitness) > 1e-6 and np.std(offspring_fitness) > 1e-6:
+                    sns.kdeplot(
+                        x=min_parent_fitness, 
+                        y=offspring_fitness, 
+                        ax=axs2[idx], 
+                        cmap="Blues", 
+                        fill=True, 
+                        alpha=0.3, 
+                        label="KDE"
+                    )
+            except Exception as e:
+                print(f"Warning: KDE plot failed for min parent in model {model} due to {e}")
+            
+            # Add reference line (x = y)
+            min_val = min(min_parent_fitness.min(), offspring_fitness.min())
+            max_val = max(min_parent_fitness.max(), offspring_fitness.max())
+            axs2[idx].plot([min_val, max_val], [min_val, max_val], 'k--', label='x = y')
+            
+            # Add legend
+            axs2[idx].legend(loc='lower right')
+        else:
+            # Add information message for not enough data
+            axs1[idx].text(0.5, 0.5, f"Insufficient data points ({len(diploids)})\nNeed > 10 for analysis", 
+                         ha='center', va='center', transform=axs1[idx].transAxes,
+                         bbox=dict(boxstyle="round,pad=0.3", fc="lightyellow", ec="orange", alpha=0.8))
+            
+            axs2[idx].text(0.5, 0.5, f"Insufficient data points ({len(diploids)})\nNeed > 10 for analysis", 
+                         ha='center', va='center', transform=axs2[idx].transAxes,
+                         bbox=dict(boxstyle="round,pad=0.3", fc="lightyellow", ec="orange", alpha=0.8))
+    
+    # Set global titles
+    fig1.suptitle(f"Offspring Fitness vs Maximum Parent Fitness\n({mating_strategy} Strategy)")
+    fig2.suptitle(f"Offspring Fitness vs Minimum Parent Fitness\n({mating_strategy} Strategy)")
+    
+    # Adjust layout and save figures
+    plt.figure(fig1.number)
+    plt.tight_layout(rect=[0, 0.03, 1, 0.95])
+    plt.savefig(os.path.join(Resu_path, f'offspring_vs_max_parent_fitness_{mating_strategy}.png'), dpi=300, bbox_inches='tight')
+    
+    plt.figure(fig2.number)
+    plt.tight_layout(rect=[0, 0.03, 1, 0.95])
+    plt.savefig(os.path.join(Resu_path, f'offspring_vs_min_parent_fitness_{mating_strategy}.png'), dpi=300, bbox_inches='tight')
+        
+    # Close all figures
+    plt.close(fig1)
+    plt.close(fig2)
+
+def plot_parent_genomic_distance_vs_offspring_fitness(diploid_dict, Resu_path, mating_strategy):
+    """
+    Create a figure showing the relationship between parent-parent genomic distance (x-axis)
+    and offspring fitness (y-axis).
+    
+    Parameters:
+    -----------
+    diploid_dict : dict
+        Dictionary with keys as fitness model names and values as lists of DiploidOrganism instances.
+    Resu_path : str
+        Directory path where the resulting figure will be saved.
+    mating_strategy : str
+        The mating strategy used (for plot title)
+    """
+    models = ["dominant", "recessive", "codominant"]
+    fig, axs = plt.subplots(1, 3, figsize=(18, 6), sharex=True, sharey=True)
+    
+    for idx, model in enumerate(tqdm(models, desc=f"Creating parent distance plots for {mating_strategy}")):
+        diploids = diploid_dict.get(model, [])
+        if not diploids:
+            axs[idx].set_title(f"{model.capitalize()} Model (No Data)")
+            continue  # Skip if no data for this model
+        
+        # Calculate genomic distances between parents for each offspring
+        parent_distances = []
+        offspring_fitness = []
+        
+        # Process in small batches to avoid memory issues
+        for i in range(0, len(diploids), 100):
+            batch = diploids[i:i+100]
+            for org in batch:
+                distance = calculate_genomic_distance(org.allele1, org.allele2)
+                parent_distances.append(distance)
+                offspring_fitness.append(org.fitness)
+            gc.collect()  # Force garbage collection after each batch
+        
+        parent_distances = np.array(parent_distances)
+        offspring_fitness = np.array(offspring_fitness)
+        
+        if len(parent_distances) > 10:
+            # Scatter plot
+            axs[idx].scatter(
+                parent_distances, 
+                offspring_fitness, 
+                alpha=0.5, 
+                color='blue', 
+                s=10
+            )
+            
+            # Linear regression
+            z = np.polyfit(parent_distances, offspring_fitness, 1)
+            x_vals = np.linspace(parent_distances.min(), parent_distances.max(), 100)
+            axs[idx].plot(x_vals, np.poly1d(z)(x_vals), 'r-', label=f'Linear (R²: {np.corrcoef(parent_distances, offspring_fitness)[0,1]**2:.2f})')
+            
+            # Quadratic regression
+            z2 = np.polyfit(parent_distances, offspring_fitness, 2)
+            axs[idx].plot(x_vals, np.poly1d(z2)(x_vals), 'g--', label='Quadratic Fit')
+        
+        # Customize subplot
+        axs[idx].set_title(f"{model.capitalize()} Model - {len(diploids)}")
+        axs[idx].set_xlabel("Genomic Distance Between Parents")
+        axs[idx].set_ylabel("Offspring Fitness")
+        axs[idx].grid(True)
+        axs[idx].legend()
+    
+    # Add global title
+    plt.suptitle(f"Parent Genomic Distance vs Offspring Fitness\n({mating_strategy} Strategy)")
+    plt.tight_layout(rect=[0, 0.03, 1, 0.95])
+    
+    # Save the figure
+    output_path = os.path.join(Resu_path, f'parent_distance_vs_offspring_fitness_{mating_strategy}.png')
+    plt.savefig(output_path, dpi=300, bbox_inches='tight')
+    plt.close()
+
+def plot_offspring_fitness_vs_offspring_prs(diploid_dict, Resu_path, mating_strategy):
+    """
+    Create plots showing the relationship between offspring's own PRS scores and offspring fitness.
+    
+    Parameters:
+    -----------
+    diploid_dict : dict
+        Dictionary with keys as fitness model names and values as lists of DiploidOrganism instances.
+    Resu_path : str
+        Directory path where the resulting figure will be saved.
+    mating_strategy : str
+        The mating strategy used (for plot title)
+    """
+    models = ["dominant", "recessive", "codominant"]
+    fig, axs = plt.subplots(1, 3, figsize=(18, 6), sharex=True, sharey=True)
+    
+    for idx, model in enumerate(tqdm(models, desc=f"Creating Offspring PRS plots for {mating_strategy}")):
+        diploids = diploid_dict.get(model, [])
+        if not diploids:
+            axs[idx].set_title(f"{model.capitalize()} Model (No Data)")
+            continue  # Skip if no data for this model
+        
+        # Calculate offspring PRS and collect offspring fitness
+        offspring_prs = []
+        offspring_fitness = []
+        parent_avg_prs = []
+        
+        # Process in small batches to avoid memory issues
+        for i in range(0, len(diploids), 100):
+            batch = diploids[i:i+100]
+            for org in batch:
+                # Calculate offspring's own PRS
+                org_prs = calculate_diploid_prs(org)
+                offspring_prs.append(org_prs)
+                
+                # Calculate average parent PRS for comparison
+                p1_prs = calculate_prs(org.allele1)
+                p2_prs = calculate_prs(org.allele2)
+                parent_avg_prs.append((p1_prs + p2_prs) / 2)
+                
+                # Get offspring fitness
+                offspring_fitness.append(org.fitness)
+            
+            gc.collect()  # Force garbage collection after each batch
+        
+        # Convert to numpy arrays for easier manipulation
+        offspring_prs = np.array(offspring_prs)
+        offspring_fitness = np.array(offspring_fitness)
+        parent_avg_prs = np.array(parent_avg_prs)
+        
+        if len(offspring_prs) > 10:
+            # Scatter plot
+            axs[idx].scatter(
+                offspring_prs, 
+                offspring_fitness, 
+                alpha=0.5, 
+                color='purple', 
+                s=10,
+                label="Offspring PRS"
+            )
+            
+            # Linear regression
+            z = np.polyfit(offspring_prs, offspring_fitness, 1)
+            x_vals = np.linspace(offspring_prs.min(), offspring_prs.max(), 100)
+            r_squared = np.corrcoef(offspring_prs, offspring_fitness)[0,1]**2
+            axs[idx].plot(x_vals, np.poly1d(z)(x_vals), 'r-', 
+                      label=f'Linear (R²: {r_squared:.2f})')
+            
+            # Quadratic regression
+            z2 = np.polyfit(offspring_prs, offspring_fitness, 2)
+            axs[idx].plot(x_vals, np.poly1d(z2)(x_vals), 'g--', label='Quadratic Fit')
+            
+            # Calculate additional statistics
+            # Compare offspring PRS vs parent average PRS correlation with fitness
+            corr_offspring = np.corrcoef(offspring_prs, offspring_fitness)[0,1]
+            corr_parents = np.corrcoef(parent_avg_prs, offspring_fitness)[0,1]
+            
+            # Customize subplot
+            axs[idx].set_title(f"{model.capitalize()} Model - {len(diploids)}")
+            axs[idx].set_xlabel("Offspring PRS")
+            axs[idx].set_ylabel("Offspring Fitness")
+            axs[idx].grid(True)
+            axs[idx].legend()
+            
+            # Add annotations with correlation values
+            axs[idx].annotate(
+                f"Offspring PRS-Fitness Correlation: {corr_offspring:.3f}\n"
+                f"R²: {r_squared:.3f}\n"
+                f"Parent Avg PRS-Fitness Correlation: {corr_parents:.3f}", 
+                xy=(0.05, 0.95), xycoords='axes fraction',
+                bbox=dict(boxstyle="round,pad=0.3", fc="white", ec="gray", alpha=0.8),
+                ha='left', va='top'
+            )
+    
+    # Add global title
+    plt.suptitle(f"Offspring PRS vs Offspring Fitness\n({mating_strategy} Strategy)")
+    plt.tight_layout(rect=[0, 0.03, 1, 0.95])
+    
+    # Save the figure
+    output_path = os.path.join(Resu_path, f'offspring_prs_vs_offspring_fitness_{mating_strategy}.png')
+    plt.savefig(output_path, dpi=300, bbox_inches='tight')
+    plt.close()
+
 
 #######################################################################
 # Simulation functions
@@ -996,7 +1392,9 @@ def main():
     aparser.add_argument("--genome_size", type=int, default=100, help="Size of the genome")
     aparser.add_argument("--beta", type=float, default=0.5, help="Beta parameter")
     aparser.add_argument("--rho", type=float, default=0.25, help="Rho parameter")
-    aparser.add_argument("--mating_strategy", type=str, default="one_to_one", help=["one_to_one", "all_vs_all", "mating_types"]) #["one_to_one", "all_vs_all", "mating_types"],
+    aparser.add_argument("--mating_strategy", type=str, default="one_to_one", 
+                    choices=["one_to_one", "all_vs_all", "mating_types"], 
+                    help="Strategy for organism mating")
     aparser.add_argument("--output_dir", type=str, default="Resu", help="Output directory for results")
 
 
@@ -1048,21 +1446,28 @@ def main():
 
     mating_stats = calculate_mating_statistics(diploid_offspring_dict)
     
-    # Plot parent-offspring fitness comparison
+    # Plot parent-offspring fitness comparison (PLOT 1)
     log.info("Creating parent-offspring fitness comparison plot")
-    plot_parent_offspring_fitness(diploid_offspring_dict, Resu_path , args.mating_strategy)
+    plot_parent_offspring_fitness(diploid_offspring_dict, Resu_path, args.mating_strategy)
 
-    #plot parent fitness vs offspring genomic distance
-    log.info("Creating parent fitness vs offspring genomic distance plot")
-    plot_parent_fitness_vs_offspring_distance(diploid_offspring_dict, Resu_path , args.mating_strategy)
+    # Plot parent genomic distance vs offspring fitness (PLOT 2 - corrected version)
+    log.info("Creating parent genomic distance vs offspring fitness plot")
+    plot_parent_genomic_distance_vs_offspring_fitness(diploid_offspring_dict, Resu_path, args.mating_strategy)
+    
+    # Plot offspring fitness vs min/max parent fitness (PLOTS 3, 4, 5)
+    log.info("Creating offspring vs min/max parent fitness plots")
+    plot_offspring_vs_min_max_parent_fitness(diploid_offspring_dict, Resu_path, args.mating_strategy)
+    
+    # Plot parent PRS vs offspring fitness (PLOT 6 - new)
+    log.info("Creating offspring PRS vs offspring fitness plot")
+    plot_offspring_fitness_vs_offspring_prs(diploid_offspring_dict, Resu_path, args.mating_strategy)
+
     
     # plot heatmap parent-offspring fitness comparison
     log.info("Creating parent-offspring fitness heatmap plot")
     plot_parent_offspring_heatmap(diploid_offspring_dict, Resu_path)
    
-   
     # create summary statistics
-
     summary_stats = summarize_simulation_stats(generation_stats, individual_fitness, diploid_offspring_dict)
     log_simulation_summary(log, summary_stats)
 
@@ -1071,7 +1476,9 @@ def main():
     log.info(f"CPU usage: {psutil.cpu_percent(interval=1):.2f}%")
     log.info(f"End time: {time.strftime('%Y-%m-%d %H:%M:%S')}")
     log.info(f"LSF job details: {', '.join(_get_lsf_job_details())}")
+    log.info(f"The log file is located at: {os.path.join(Resu_path, 'sexy_yeast.log')}")
     log.info("=== END OF SIMULATION ===")
+
 
 if __name__ == "__main__":
     main()
@@ -1081,4 +1488,3 @@ if __name__ == "__main__":
 example usage: 
 bsub -q gsla-cpu -R rusage[mem=42000] /home/labs/pilpel/barc/sexy_yeast/src/main_simulation_BC.py --generations 4 --genome_size 128 --beta 0.5 --rho 0.25 --mating_strategy all_vs_all --output_dir /home/labs/pilpel/barc/sexy_yeast/tttt
 """
-
