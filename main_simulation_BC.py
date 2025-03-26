@@ -78,44 +78,41 @@ def compute_fit_slow(sigma, his, Jijs, F_off=0.0):
 def init_J(N, beta, rho, random_state=None):
     """
     Initialize the coupling matrix for the Sherrington-Kirkpatrick model with sparsity.
-
-    Parameters
-    ----------
-    N : int
-        The number of spins.
-    beta : float, optional
-        Inverse temperature parameter.
-    rho : float
-        Fraction of non-zero elements in the coupling matrix (0 < rho ≤ 1).
-    random_state : int or numpy.random.Generator, optional
-        Seed or generator for reproducibility.
-
-    Returns
-    -------
-    numpy.ndarray
-        The symmetric coupling matrix Jij with sparsity controlled by rho.
     """
     if not (0 < rho <= 1):
         raise ValueError("rho must be between 0 (exclusive) and 1 (inclusive).")
+    
     rng = np.random.default_rng(random_state)
+    
+    # Handle special case when N=1
+    if N == 1:
+        return np.zeros((1, 1))  # Return a 1x1 zero matrix
+        
     sig_J = np.sqrt(beta / (N * rho))  # Adjusted standard deviation for sparsity
+    
     # Initialize an empty upper triangular matrix (excluding diagonal)
     J_upper = np.zeros((N, N))
+    
     # Total number of upper triangular elements excluding diagonal
     total_elements = N * (N - 1) // 2
+    
     # Number of non-zero elements based on rho
     num_nonzero = int(np.floor(rho * total_elements))
     if num_nonzero == 0 and rho > 0:
         num_nonzero = 1  # Ensure at least one non-zero element if rho > 0
+    
     # Get the indices for the upper triangle (excluding diagonal)
     triu_indices = np.triu_indices(N, k=1)
+    
     # Randomly select indices to assign non-zero Gaussian values
-    selected_indices = rng.choice(total_elements, size=num_nonzero, replace=False)
-    # Map the selected flat indices to row and column indices
-    rows = triu_indices[0][selected_indices]
-    cols = triu_indices[1][selected_indices]
-    # Assign Gaussian-distributed values to the selected positions
-    J_upper[rows, cols] = rng.normal(loc=0.0, scale=sig_J, size=num_nonzero)
+    if total_elements > 0 and num_nonzero > 0:
+        selected_indices = rng.choice(total_elements, size=num_nonzero, replace=False)
+        # Map the selected flat indices to row and column indices
+        rows = triu_indices[0][selected_indices]
+        cols = triu_indices[1][selected_indices]
+        # Assign Gaussian-distributed values to the selected positions
+        J_upper[rows, cols] = rng.normal(loc=0.0, scale=sig_J, size=num_nonzero)
+    
     # Symmetrize the matrix to make Jij symmetric
     Jij = J_upper + J_upper.T
 
@@ -272,43 +269,52 @@ def monitor_memory():
     log.info(f"Current memory usage: {mem:.2f} GB")
 
 def calculate_regression_stats(x, y):
-    """
-    Calculate regression statistics including R², slope, and intercept.
-    
-    Parameters:
-    -----------
-    x : np.array
-        Independent variable
-    y : np.array
-        Dependent variable
-        
-    Returns:
-    --------
-    dict
-        Dictionary containing R², slope, intercept, and other statistics
-    """
+    """Calculate regression statistics with error handling."""
     from scipy import stats
     import numpy as np
     
-    # Linear regression
-    slope, intercept, r_value, p_value, std_err = stats.linregress(x, y)
-    r_squared = r_value ** 2
+    # Check if regression is possible
+    if len(x) <= 1 or len(np.unique(x)) <= 1:
+        return {
+            'linear_r_squared': 0,
+            'linear_slope': 0,
+            'linear_intercept': 0,
+            'linear_p_value': 1,
+            'quadratic_r_squared': 0,
+            'quadratic_coeffs': [0, 0, 0]
+        }
     
-    # Quadratic regression
-    coeffs = np.polyfit(x, y, 2)
-    poly = np.poly1d(coeffs)
-    y_pred = poly(x)
-    y_mean = np.mean(y)
-    r_squared_quad = 1 - (np.sum((y - y_pred) ** 2) / np.sum((y - y_mean) ** 2))
-    
-    return {
-        'linear_r_squared': r_squared,
-        'linear_slope': slope,
-        'linear_intercept': intercept,
-        'linear_p_value': p_value,
-        'quadratic_r_squared': r_squared_quad,
-        'quadratic_coeffs': coeffs.tolist()
-    }
+    try:
+        # Linear regression
+        slope, intercept, r_value, p_value, std_err = stats.linregress(x, y)
+        r_squared = r_value ** 2
+        
+        # Quadratic regression
+        coeffs = np.polyfit(x, y, 2)
+        poly = np.poly1d(coeffs)
+        y_pred = poly(x)
+        y_mean = np.mean(y)
+        r_squared_quad = 1 - (np.sum((y - y_pred) ** 2) / np.sum((y - y_mean) ** 2))
+        
+        return {
+            'linear_r_squared': r_squared,
+            'linear_slope': slope,
+            'linear_intercept': intercept,
+            'linear_p_value': p_value,
+            'quadratic_r_squared': r_squared_quad,
+            'quadratic_coeffs': coeffs.tolist()
+        }
+    except Exception as e:
+        print(f"Warning: Regression analysis failed - {e}")
+        return {
+            'linear_r_squared': 0,
+            'linear_slope': 0,
+            'linear_intercept': 0,
+            'linear_p_value': 1,
+            'quadratic_r_squared': 0,
+            'quadratic_coeffs': [0, 0, 0],
+            'error': str(e)
+        }
 
 def summarize_simulation_stats(generation_stats, individual_fitness, diploid_dict):
     """
@@ -446,7 +452,7 @@ class Environment:
         """Calculate fitness for a given genome"""
         # Calculate energy (negative fitness)
         energy = compute_fit_slow(genome, self.h, self.J , F_off=0.0)
-        # Convert energy to fitness (higher is better)
+        # Convert enaergy to fitness (higher is better)
         # return 1.0 / (1.0 + np.exp(-energy))
         return energy
     
@@ -553,6 +559,19 @@ class DiploidOrganism:
         - If alleles are different (1,-1) or (-1,1): use 0.5 * (allele1 + allele2)
         - If environment prefers 1 and alleles are (1,1): returns 1
         """
+         # Special handling for genome size 1
+        if len(self.allele1) == 1:
+            if self.fitness_model == "dominant":
+                return np.array([-1]) if -1 in [self.allele1[0], self.allele2[0]] else np.array([1])
+            elif self.fitness_model == "recessive":
+                return np.array([-1]) if self.allele1[0] == -1 and self.allele2[0] == -1 else np.array([1])
+            elif self.fitness_model == "codominant":
+                if self.allele1[0] == self.allele2[0]:
+                    return self.allele1.copy()
+                else:
+                    return np.array([0])  # Average of -1 and 1
+    
+        
         if self.fitness_model == "dominant":
             return np.where((self.allele1 == -1) | (self.allele2 == -1), -1, 1)
         elif self.fitness_model == "recessive":
@@ -686,87 +705,150 @@ def plot_relationship_tree(organisms, Resu_path):
 
 def plot_parent_offspring_fitness(diploid_dict, Resu_path, mating_strategy):
     """
-    Create a figure with three subplots (one per diploid model) where the x-axis shows 
-    the mean parent fitness and the y-axis shows the offspring fitness. Includes both linear 
-    and quadratic regression lines, KDE plots, and a reference line (x = y).
-
+    Create a figure with three subplots (one per diploid model) showing the relationship 
+    between mean parent fitness (x-axis) and offspring fitness (y-axis).
+    
     Parameters:
     -----------
     diploid_dict : dict
-        Dictionary with keys as fitness model names (e.g., "dominant", "recessive", "codominant")
-        and values as lists of DiploidOrganism instances.
+        Dictionary with keys as fitness model names and values as lists of DiploidOrganism instances.
     Resu_path : str
         Directory path where the resulting figure will be saved.
     mating_strategy : str
         The mating strategy used (for plot title)
     """
-    # Define the order, colors, and markers for the three models
+    # Define the order and colors for the three models
     models = ["dominant", "recessive", "codominant"]
     colors = {"dominant": "blue", "recessive": "green", "codominant": "purple"}
 
-    # Create subplots
+    # Create figure with subplots
     fig, axs = plt.subplots(1, 3, figsize=(18, 6), sharex=True, sharey=True)
 
     for idx, model in enumerate(tqdm(models, desc=f"Processing Models for {mating_strategy} Strategy")):
         diploids = diploid_dict.get(model, [])
-        if not diploids:
-            axs[idx].set_title(f"{model.capitalize()} Model (No Data)")
-            continue  # Skip if no data for this model
-
-        offspring_fitness = np.array([org.fitness for org in diploids])
-        parent_fitness = np.array([org.avg_parent_fitness for org in diploids])
-
-        # Customize subplot - Do this for all cases
-        axs[idx].set_title(f"{model.capitalize()} Model - {len(diploids)} \n mating strategy: {mating_strategy}")
+        
+        # Set basic subplot properties regardless of data
+        axs[idx].set_title(f"{model.capitalize()} Model - {len(diploids)} organisms\n"
+                          f"Mating strategy: {mating_strategy}")
         axs[idx].set_xlabel("Mean Parent Fitness")
         axs[idx].set_ylabel("Offspring Fitness")
         axs[idx].grid(True)
-
-        if len(offspring_fitness) > 10 and len(parent_fitness) > 10:
-            # Scatter plot
-            sns.scatterplot(
-                x=parent_fitness, 
-                y=offspring_fitness, 
-                ax=axs[idx], 
-                alpha=0.7, 
-                color=colors[model], 
-                label="Data"
-            )
-
-            # Linear regression line and R²
-            linear_r = np.corrcoef(parent_fitness, offspring_fitness)[0,1]
-            linear_r2 = linear_r**2
-            linear_z = np.polyfit(parent_fitness, offspring_fitness, 1)
-            linear_model = np.poly1d(linear_z)
+        
+        # Handle empty data case
+        if not diploids:
+            axs[idx].text(0.5, 0.5, "No Data", 
+                        ha='center', va='center', transform=axs[idx].transAxes,
+                        bbox=dict(boxstyle="round,pad=0.3", fc="lightyellow", ec="orange", alpha=0.8))
+            continue
+            
+        # Extract fitness data
+        offspring_fitness = np.array([org.fitness for org in diploids])
+        parent_fitness = np.array([org.avg_parent_fitness for org in diploids])
+        
+        # Check if we have enough variation for meaningful analysis
+        parent_unique = len(np.unique(parent_fitness))
+        offspring_unique = len(np.unique(offspring_fitness))
+        
+        # Always plot the scatter plot if we have any data
+        scatter = axs[idx].scatter(
+            parent_fitness, 
+            offspring_fitness, 
+            alpha=0.7, 
+            color=colors[model], 
+            label="Data Points"
+        )
+        
+        # Handle case with no variation
+        if parent_unique <= 1:
+            axs[idx].text(0.5, 0.2, "All parent fitness values are identical\n"
+                         f"Value: {parent_fitness[0]:.4f}",
+                        ha='center', va='center', transform=axs[idx].transAxes,
+                        bbox=dict(boxstyle="round,pad=0.3", fc="lightyellow", ec="orange", alpha=0.8))
+            
+            # Still add a horizontal line at the offspring fitness mean
+            if offspring_unique > 1:
+                mean_offspring = np.mean(offspring_fitness)
+                axs[idx].axhline(mean_offspring, color='red', linestyle='-', label=f'Mean Offspring: {mean_offspring:.4f}')
+                
+            axs[idx].legend(loc='lower right')
+            continue
+            
+        # Regular case - we have variation in both x and y
+        try:
+            # Scatter plot already added above
+            
+            # Linear regression
+            from scipy import stats
+            slope, intercept, r_value, p_value, std_err = stats.linregress(parent_fitness, offspring_fitness)
+            linear_r2 = r_value**2
             
             # Plot linear fit
-            sns.regplot(
-                x=parent_fitness, 
-                y=offspring_fitness, 
-                ax=axs[idx], 
-                scatter=False, 
-                line_kws={'color': 'red', 'label': f'Linear (R²: {linear_r2:.2f})'}
-            )
-
-            # Quadratic (second-order polynomial) regression line and R²
-            quad_z = np.polyfit(parent_fitness, offspring_fitness, 2)
-            quad_model = np.poly1d(quad_z)
-            x_vals = np.linspace(parent_fitness.min(), parent_fitness.max(), 500)
+            x_range = np.linspace(min(parent_fitness), max(parent_fitness), 100)
+            axs[idx].plot(x_range, slope * x_range + intercept, 
+                        color='red', linestyle='-', 
+                        label=f'Linear (R²: {linear_r2:.3f})')
             
-            # Calculate quadratic R²
-            y_pred = quad_model(parent_fitness)
-            y_mean = np.mean(offspring_fitness)
-            quad_r2 = 1 - (np.sum((offspring_fitness - y_pred)**2) / 
-                          np.sum((offspring_fitness - y_mean)**2))
+            # Try quadratic regression if we have enough unique points
+            if parent_unique >= 3:
+                try:
+                    # Quadratic regression
+                    quad_z = np.polyfit(parent_fitness, offspring_fitness, 2)
+                    quad_model = np.poly1d(quad_z)
+                    
+                    # Calculate quadratic R²
+                    y_pred = quad_model(parent_fitness)
+                    y_mean = np.mean(offspring_fitness)
+                    quad_r2 = 1 - (np.sum((offspring_fitness - y_pred)**2) / 
+                                  np.sum((offspring_fitness - y_mean)**2))
+                    
+                    # Plot quadratic fit
+                    axs[idx].plot(x_range, quad_model(x_range), 
+                               color='orange', linestyle='--', 
+                               label=f'Quadratic (R²: {quad_r2:.3f})')
+                except Exception as e:
+                    print(f"Warning: Quadratic regression failed for {model} model: {e}")
             
-            # Plot quadratic fit
-            axs[idx].plot(x_vals, quad_model(x_vals), 
-                       color='orange', linestyle='--', 
-                       label=f'Quadratic (R²: {quad_r2:.2f})')
-
-            # KDE plot
+            # Reference line (x = y)
+            min_val = min(min(parent_fitness), min(offspring_fitness))
+            max_val = max(max(parent_fitness), max(offspring_fitness))
+            axs[idx].plot([min_val, max_val], [min_val, max_val], 
+                        'k--', label='y = x (No Change Line)')
+            
+            # Add statistics text
+            stats_text = [
+                f"Linear R²: {linear_r2:.3f}",
+                f"Slope: {slope:.3f}",
+                f"Intercept: {intercept:.3f}",
+                f"p-value: {p_value:.3e}",
+            ]
+            
+            # Add correlation information
+            pearson_r = r_value
             try:
-                if np.std(parent_fitness) > 1e-6 and np.std(offspring_fitness) > 1e-6:  # Ensure variability
+                spearman_r, spearman_p = stats.spearmanr(parent_fitness, offspring_fitness)
+                stats_text.append(f"Pearson r: {pearson_r:.3f}")
+                stats_text.append(f"Spearman ρ: {spearman_r:.3f}")
+            except Exception:
+                stats_text.append(f"Pearson r: {pearson_r:.3f}")
+            
+            # Add mean values
+            mean_parent = np.mean(parent_fitness)
+            mean_offspring = np.mean(offspring_fitness)
+            stats_text.append(f"Mean Parent: {mean_parent:.3f}")
+            stats_text.append(f"Mean Offspring: {mean_offspring:.3f}")
+            
+            # Show improvement percentage
+            improvement = ((mean_offspring - mean_parent) / abs(mean_parent)) * 100 if mean_parent != 0 else 0
+            stats_text.append(f"Improvement: {improvement:.2f}%")
+            
+            axs[idx].text(0.05, 0.95, "\n".join(stats_text), 
+                        transform=axs[idx].transAxes, 
+                        fontsize=9, va='top', ha='left',
+                        bbox=dict(boxstyle='round', facecolor='white', alpha=0.8))
+            
+            # Try adding a KDE plot if we have enough different points
+            if parent_unique >= 5 and offspring_unique >= 5:
+                try:
                     sns.kdeplot(
                         x=parent_fitness, 
                         y=offspring_fitness, 
@@ -774,48 +856,34 @@ def plot_parent_offspring_fitness(diploid_dict, Resu_path, mating_strategy):
                         cmap="Blues", 
                         fill=True, 
                         alpha=0.3, 
-                        label="KDE"
+                        levels=5,
+                        label="Density"
                     )
-            except Exception as e:
-                print(f"Warning: KDE plot failed for model {model} due to {e}")
-                
-            # Add reference line (x = y)
-            min_val = min(parent_fitness.min(), offspring_fitness.min())
-            max_val = max(parent_fitness.max(), offspring_fitness.max())
-            axs[idx].plot([min_val, max_val], [min_val, max_val], 'k--', label='x = y')
+                except Exception as e:
+                    print(f"Warning: KDE plot failed for {model} model: {e}")
             
-            # Add detailed statistics text
-            from scipy import stats
-            slope, intercept, _, p_value, std_err = stats.linregress(parent_fitness, offspring_fitness)
-            spearman_r, spearman_p = stats.spearmanr(parent_fitness, offspring_fitness)
-            
-            stats_text = (f"Linear R²: {linear_r2:.3f}\n"
-                         f"Slope: {slope:.3f}\n"
-                         f"Quad R²: {quad_r2:.3f}\n"
-                         f"Pearson r: {linear_r:.3f}\n"
-                         f"Spearman ρ: {spearman_r:.3f}")
-            
-            axs[idx].text(0.05, 0.95, stats_text, transform=axs[idx].transAxes, 
-                       fontsize=9, va='top', ha='left',
-                       bbox=dict(boxstyle='round', facecolor='white', alpha=0.8))
-            
-            # Only add legend if we have labeled elements
-            axs[idx].legend(loc='lower right')
-        else:
-            # No data message for plots without enough data
-            axs[idx].text(0.5, 0.5, f"Insufficient data points ({len(diploids)})\nNeed > 10 for analysis", 
+        except Exception as e:
+            # Handle any other errors
+            error_msg = f"Analysis error: {str(e)}"
+            print(f"Warning: {error_msg}")
+            axs[idx].text(0.5, 0.5, error_msg, 
                         ha='center', va='center', transform=axs[idx].transAxes,
                         bbox=dict(boxstyle="round,pad=0.3", fc="lightyellow", ec="orange", alpha=0.8))
+        
+        # Always add a legend
+        handles, labels = axs[idx].get_legend_handles_labels()
+        if handles:
+            axs[idx].legend(loc='lower right')
 
-    # Add a global title
-    plt.suptitle("Parent vs Offspring Fitness Comparison\n(Mean Parent Fitness on X-Axis)")
+    # Global title
+    plt.suptitle("Parent vs Offspring Fitness Comparison", fontsize=16)
     plt.tight_layout(rect=[0, 0.03, 1, 0.95])
 
-    # Save the figure
+    # Save figure
     output_path = os.path.join(Resu_path, f'parent_offspring_fitness_{mating_strategy}.png')
     plt.savefig(output_path, dpi=300, bbox_inches='tight')
     plt.close()
-    
+
 def plot_parent_offspring_heatmap(diploid_offspring_dict, Resu_path):
     """
     Create heatmap plots comparing Parent 1 fitness (x-axis) and Parent 2 fitness (y-axis),
@@ -874,7 +942,8 @@ def plot_parent_offspring_heatmap(diploid_offspring_dict, Resu_path):
 
 def plot_offspring_vs_min_max_parent_fitness(diploid_dict, Resu_path, mating_strategy):
     """
-    Create plots comparing offspring fitness to minimum and maximum parent fitness.
+    Create plots comparing offspring fitness to minimum and maximum parent fitness
+    with robust error handling for edge cases like genome size of 1.
     
     Parameters:
     -----------
@@ -889,89 +958,144 @@ def plot_offspring_vs_min_max_parent_fitness(diploid_dict, Resu_path, mating_str
     models = ["dominant", "recessive", "codominant"]
     colors = {"dominant": "blue", "recessive": "green", "codominant": "purple"}
     
-    # Plot 1: Offspring vs Max Parent Fitness
+    # Create two separate figures for max and min parent fitness
     fig1, axs1 = plt.subplots(1, 3, figsize=(18, 6), sharex=True, sharey=True)
-    
-    # Plot 2: Offspring vs Min Parent Fitness
     fig2, axs2 = plt.subplots(1, 3, figsize=(18, 6), sharex=True, sharey=True)
 
     for idx, model in enumerate(tqdm(models, desc=f"Creating min-max plots for {mating_strategy}")):
         diploids = diploid_dict.get(model, [])
-        if not diploids:
-            axs1[idx].set_title(f"{model.capitalize()} Model (No Data)")
-            axs2[idx].set_title(f"{model.capitalize()} Model (No Data)")
-            continue  # Skip if no data for this model
         
-        # Extract data
-        offspring_fitness = np.array([org.fitness for org in diploids])
-        min_parent_fitness = np.array([min(org.parent1_fitness, org.parent2_fitness) for org in diploids])
-        max_parent_fitness = np.array([max(org.parent1_fitness, org.parent2_fitness) for org in diploids])
-        
-        # Set up basic subplot properties for both plots regardless of data amount
-        axs1[idx].set_title(f"{model.capitalize()} Model - {len(diploids)}")
-        axs1[idx].set_xlabel("Max Parent Fitness")
+        # Set basic subplot properties for both plots
+        axs1[idx].set_title(f"{model.capitalize()} Model - {len(diploids) if diploids else 0} organisms")
+        axs1[idx].set_xlabel("Maximum Parent Fitness")
         axs1[idx].set_ylabel("Offspring Fitness")
         axs1[idx].grid(True)
         
-        axs2[idx].set_title(f"{model.capitalize()} Model - {len(diploids)}")
-        axs2[idx].set_xlabel("Min Parent Fitness")
+        axs2[idx].set_title(f"{model.capitalize()} Model - {len(diploids) if diploids else 0} organisms")
+        axs2[idx].set_xlabel("Minimum Parent Fitness")
         axs2[idx].set_ylabel("Offspring Fitness")
         axs2[idx].grid(True)
         
-        if len(offspring_fitness) > 10:
-            # --- PLOT 1: Offspring vs Max Parent Fitness ---
+        # Handle empty data case
+        if not diploids:
+            for ax in [axs1[idx], axs2[idx]]:
+                ax.text(0.5, 0.5, "No Data", 
+                      ha='center', va='center', transform=ax.transAxes,
+                      bbox=dict(boxstyle="round,pad=0.3", fc="lightyellow", ec="orange", alpha=0.8))
+            continue
+        
+        try:
+            # Extract fitness data
+            offspring_fitness = np.array([org.fitness for org in diploids])
+            min_parent_fitness = np.array([min(org.parent1_fitness, org.parent2_fitness) for org in diploids])
+            max_parent_fitness = np.array([max(org.parent1_fitness, org.parent2_fitness) for org in diploids])
             
-            # Scatter plot
-            sns.scatterplot(
-                x=max_parent_fitness, 
-                y=offspring_fitness, 
-                ax=axs1[idx], 
+            # Check variation in parent fitness values
+            min_unique = len(np.unique(min_parent_fitness))
+            max_unique = len(np.unique(max_parent_fitness))
+            offspring_unique = len(np.unique(offspring_fitness))
+            
+            # ---- Process Max Parent Fitness Plot (Fig 1) ----
+            
+            # Always create scatter plot regardless of variation
+            axs1[idx].scatter(
+                max_parent_fitness, 
+                offspring_fitness, 
                 alpha=0.7, 
                 color=colors[model], 
-                label="Data"
+                s=30,
+                label="Data Points"
             )
             
-            # Linear regression line
-            sns.regplot(
-                x=max_parent_fitness, 
-                y=offspring_fitness, 
-                ax=axs1[idx], 
-                scatter=False, 
-                line_kws={'color': 'red', 'label': 'Linear Fit'}
-            )
+            # Handle case with no variation in max parent fitness
+            if max_unique <= 1:
+                axs1[idx].text(0.5, 0.2, 
+                              f"All max parent fitness values are identical: {max_parent_fitness[0]:.4f}\n"
+                              f"Mean offspring fitness: {np.mean(offspring_fitness):.4f}",
+                              ha='center', va='center', transform=axs1[idx].transAxes,
+                              bbox=dict(boxstyle="round,pad=0.3", fc="lightyellow", ec="orange", alpha=0.8))
+                
+                # Add horizontal line at mean offspring fitness
+                if offspring_unique > 1:
+                    mean_off = np.mean(offspring_fitness)
+                    axs1[idx].axhline(mean_off, color='red', linestyle='-', 
+                                    label=f'Mean Offspring: {mean_off:.4f}')
+            else:
+                # We have variation in max parent fitness, so try regression
+                try:
+                    # Linear regression using scipy.stats (more robust)
+                    from scipy import stats
+                    slope, intercept, r_value, p_value, std_err = stats.linregress(
+                        max_parent_fitness, offspring_fitness
+                    )
+                    r_squared = r_value**2
+                    
+                    # Create range for plotting
+                    x_range = np.linspace(min(max_parent_fitness), max(max_parent_fitness), 100)
+                    y_pred = slope * x_range + intercept
+                    
+                    # Plot regression line
+                    axs1[idx].plot(x_range, y_pred, 'r-', 
+                                  label=f'Linear (R²: {r_squared:.3f})')
+                    
+                    # Try quadratic regression if we have enough unique points
+                    if max_unique >= 3:
+                        try:
+                            # Define quadratic function for curve_fit
+                            def quadratic(x, a, b, c):
+                                return a * x**2 + b * x + c
+                            
+                            # Use curve_fit for robust fitting
+                            from scipy.optimize import curve_fit
+                            popt, _ = curve_fit(quadratic, max_parent_fitness, offspring_fitness)
+                            
+                            # Calculate predictions for plotting
+                            quad_y_pred = quadratic(x_range, *popt)
+                            
+                            # Calculate R² for quadratic fit
+                            all_y_pred = quadratic(max_parent_fitness, *popt)
+                            y_mean = np.mean(offspring_fitness)
+                            ss_total = np.sum((offspring_fitness - y_mean)**2)
+                            ss_residual = np.sum((offspring_fitness - all_y_pred)**2)
+                            quad_r2 = 1 - (ss_residual / ss_total) if ss_total > 0 else 0
+                            
+                            # Plot quadratic fit
+                            axs1[idx].plot(x_range, quad_y_pred, 'g--', 
+                                         label=f'Quadratic (R²: {quad_r2:.3f})')
+                        except Exception as e:
+                            print(f"Warning: Quadratic fit failed for max parent in {model} model: {e}")
+                    
+                    # Add reference line (x = y)
+                    min_val = min(min(max_parent_fitness), min(offspring_fitness))
+                    max_val = max(max(max_parent_fitness), max(offspring_fitness))
+                    axs1[idx].plot([min_val, max_val], [min_val, max_val], 
+                                  'k--', label='y = x (No Change)')
+                    
+                    # Add statistics text
+                    stats_text = [
+                        f"Linear R²: {r_squared:.3f}",
+                        f"Slope: {slope:.3f}",
+                        f"Intercept: {intercept:.3f}",
+                        f"Correlation: {r_value:.3f}",
+                        f"Mean Max Parent: {np.mean(max_parent_fitness):.3f}",
+                        f"Mean Offspring: {np.mean(offspring_fitness):.3f}"
+                    ]
+                    
+                    axs1[idx].text(0.05, 0.95, "\n".join(stats_text), 
+                                  transform=axs1[idx].transAxes, 
+                                  fontsize=9, va='top', ha='left',
+                                  bbox=dict(boxstyle='round', facecolor='white', alpha=0.8))
+                except Exception as e:
+                    # Handle regression errors for max parent
+                    error_msg = str(e).split('\n')[0]  # First line only
+                    print(f"Warning: Max parent regression failed for {model} model: {error_msg}")
+                    axs1[idx].text(0.5, 0.5, f"Regression analysis failed:\n{error_msg}", 
+                                  ha='center', va='center', transform=axs1[idx].transAxes,
+                                  bbox=dict(boxstyle="round,pad=0.3", fc="lightyellow", ec="orange", alpha=0.8))
             
-            # Calculate linear R²
-            max_parent_r_linear = np.corrcoef(max_parent_fitness, offspring_fitness)[0,1]
-            max_parent_r2_linear = max_parent_r_linear**2
-            
-            # Quadratic regression
-            max_z2 = np.polyfit(max_parent_fitness, offspring_fitness, 2)
-            max_quad_model = np.poly1d(max_z2)
-            max_x_vals = np.linspace(max_parent_fitness.min(), max_parent_fitness.max(), 500)
-            
-            # Calculate quadratic R²
-            max_y_pred = max_quad_model(max_parent_fitness)
-            max_y_mean = np.mean(offspring_fitness)
-            max_r2_quad = 1 - (np.sum((offspring_fitness - max_y_pred)**2) / 
-                             np.sum((offspring_fitness - max_y_mean)**2))
-            
-            # Plot quadratic fit
-            axs1[idx].plot(max_x_vals, max_quad_model(max_x_vals), 
-                         color='orange', linestyle='--', 
-                         label=f'Quadratic Fit')
-            
-            # Add statistics text
-            max_stats_text = (f"Linear R²: {max_parent_r2_linear:.3f}\n"
-                            f"Quadratic R²: {max_r2_quad:.3f}\n"
-                            f"Pearson r: {max_parent_r_linear:.3f}")
-            
-            axs1[idx].text(0.05, 0.95, max_stats_text, transform=axs1[idx].transAxes, 
-                         fontsize=9, va='top', ha='left',
-                         bbox=dict(boxstyle='round', facecolor='white', alpha=0.8))
-            
-            # KDE plot
-            try:
-                if np.std(max_parent_fitness) > 1e-6 and np.std(offspring_fitness) > 1e-6:
+            # Add KDE plot if we have enough different points
+            if max_unique >= 5 and offspring_unique >= 5:
+                try:
                     sns.kdeplot(
                         x=max_parent_fitness, 
                         y=offspring_fitness, 
@@ -979,72 +1103,118 @@ def plot_offspring_vs_min_max_parent_fitness(diploid_dict, Resu_path, mating_str
                         cmap="Blues", 
                         fill=True, 
                         alpha=0.3, 
-                        label="KDE"
+                        levels=5,
+                        label="Density"
                     )
-            except Exception as e:
-                print(f"Warning: KDE plot failed for max parent in model {model} due to {e}")
+                except Exception as e:
+                    print(f"Warning: KDE plot failed for max parent in {model} model: {e}")
             
-            # Add reference line (x = y)
-            min_val = min(max_parent_fitness.min(), offspring_fitness.min())
-            max_val = max(max_parent_fitness.max(), offspring_fitness.max())
-            axs1[idx].plot([min_val, max_val], [min_val, max_val], 'k--', label='x = y')
+            # Always add legend if we have any labeled elements
+            handles1, labels1 = axs1[idx].get_legend_handles_labels()
+            if handles1:
+                axs1[idx].legend(loc='lower right')
+                
+            # ---- Process Min Parent Fitness Plot (Fig 2) ----
             
-            # Add legend
-            axs1[idx].legend(loc='lower right')
-            
-            # --- PLOT 2: Offspring vs Min Parent Fitness ---
-            
-            # Scatter plot
-            sns.scatterplot(
-                x=min_parent_fitness, 
-                y=offspring_fitness, 
-                ax=axs2[idx], 
+            # Always create scatter plot regardless of variation
+            axs2[idx].scatter(
+                min_parent_fitness, 
+                offspring_fitness, 
                 alpha=0.7, 
                 color=colors[model], 
-                label="Data"
+                s=30,
+                label="Data Points"
             )
             
-            # Linear regression line
-            sns.regplot(
-                x=min_parent_fitness, 
-                y=offspring_fitness, 
-                ax=axs2[idx], 
-                scatter=False, 
-                line_kws={'color': 'red', 'label': 'Linear Fit'}
-            )
+            # Handle case with no variation in min parent fitness
+            if min_unique <= 1:
+                axs2[idx].text(0.5, 0.2, 
+                              f"All min parent fitness values are identical: {min_parent_fitness[0]:.4f}\n"
+                              f"Mean offspring fitness: {np.mean(offspring_fitness):.4f}",
+                              ha='center', va='center', transform=axs2[idx].transAxes,
+                              bbox=dict(boxstyle="round,pad=0.3", fc="lightyellow", ec="orange", alpha=0.8))
+                
+                # Add horizontal line at mean offspring fitness
+                if offspring_unique > 1:
+                    mean_off = np.mean(offspring_fitness)
+                    axs2[idx].axhline(mean_off, color='red', linestyle='-', 
+                                    label=f'Mean Offspring: {mean_off:.4f}')
+            else:
+                # We have variation in min parent fitness, so try regression
+                try:
+                    # Linear regression using scipy.stats (more robust)
+                    from scipy import stats
+                    slope, intercept, r_value, p_value, std_err = stats.linregress(
+                        min_parent_fitness, offspring_fitness
+                    )
+                    r_squared = r_value**2
+                    
+                    # Create range for plotting
+                    x_range = np.linspace(min(min_parent_fitness), max(min_parent_fitness), 100)
+                    y_pred = slope * x_range + intercept
+                    
+                    # Plot regression line
+                    axs2[idx].plot(x_range, y_pred, 'r-', 
+                                  label=f'Linear (R²: {r_squared:.3f})')
+                    
+                    # Try quadratic regression if we have enough unique points
+                    if min_unique >= 3:
+                        try:
+                            # Define quadratic function for curve_fit
+                            def quadratic(x, a, b, c):
+                                return a * x**2 + b * x + c
+                            
+                            # Use curve_fit for robust fitting
+                            from scipy.optimize import curve_fit
+                            popt, _ = curve_fit(quadratic, min_parent_fitness, offspring_fitness)
+                            
+                            # Calculate predictions for plotting
+                            quad_y_pred = quadratic(x_range, *popt)
+                            
+                            # Calculate R² for quadratic fit
+                            all_y_pred = quadratic(min_parent_fitness, *popt)
+                            y_mean = np.mean(offspring_fitness)
+                            ss_total = np.sum((offspring_fitness - y_mean)**2)
+                            ss_residual = np.sum((offspring_fitness - all_y_pred)**2)
+                            quad_r2 = 1 - (ss_residual / ss_total) if ss_total > 0 else 0
+                            
+                            # Plot quadratic fit
+                            axs2[idx].plot(x_range, quad_y_pred, 'g--', 
+                                         label=f'Quadratic (R²: {quad_r2:.3f})')
+                        except Exception as e:
+                            print(f"Warning: Quadratic fit failed for min parent in {model} model: {e}")
+                    
+                    # Add reference line (x = y)
+                    min_val = min(min(min_parent_fitness), min(offspring_fitness))
+                    max_val = max(max(min_parent_fitness), max(offspring_fitness))
+                    axs2[idx].plot([min_val, max_val], [min_val, max_val], 
+                                  'k--', label='y = x (No Change)')
+                    
+                    # Add statistics text
+                    stats_text = [
+                        f"Linear R²: {r_squared:.3f}",
+                        f"Slope: {slope:.3f}",
+                        f"Intercept: {intercept:.3f}",
+                        f"Correlation: {r_value:.3f}",
+                        f"Mean Min Parent: {np.mean(min_parent_fitness):.3f}",
+                        f"Mean Offspring: {np.mean(offspring_fitness):.3f}"
+                    ]
+                    
+                    axs2[idx].text(0.05, 0.95, "\n".join(stats_text), 
+                                  transform=axs2[idx].transAxes, 
+                                  fontsize=9, va='top', ha='left',
+                                  bbox=dict(boxstyle='round', facecolor='white', alpha=0.8))
+                except Exception as e:
+                    # Handle regression errors for min parent
+                    error_msg = str(e).split('\n')[0]  # First line only
+                    print(f"Warning: Min parent regression failed for {model} model: {error_msg}")
+                    axs2[idx].text(0.5, 0.5, f"Regression analysis failed:\n{error_msg}", 
+                                  ha='center', va='center', transform=axs2[idx].transAxes,
+                                  bbox=dict(boxstyle="round,pad=0.3", fc="lightyellow", ec="orange", alpha=0.8))
             
-            # Calculate linear R²
-            min_parent_r_linear = np.corrcoef(min_parent_fitness, offspring_fitness)[0,1]
-            min_parent_r2_linear = min_parent_r_linear**2
-            
-            # Quadratic regression
-            min_z2 = np.polyfit(min_parent_fitness, offspring_fitness, 2)
-            min_quad_model = np.poly1d(min_z2)
-            min_x_vals = np.linspace(min_parent_fitness.min(), min_parent_fitness.max(), 500)
-            
-            # Calculate quadratic R²
-            min_y_pred = min_quad_model(min_parent_fitness)
-            min_y_mean = np.mean(offspring_fitness)
-            min_r2_quad = 1 - (np.sum((offspring_fitness - min_y_pred)**2) / 
-                             np.sum((offspring_fitness - min_y_mean)**2))
-            
-            # Plot quadratic fit
-            axs2[idx].plot(min_x_vals, min_quad_model(min_x_vals), 
-                         color='orange', linestyle='--', 
-                         label=f'Quadratic Fit')
-            
-            # Add statistics text
-            min_stats_text = (f"Linear R²: {min_parent_r2_linear:.3f}\n"
-                            f"Quadratic R²: {min_r2_quad:.3f}\n"
-                            f"Pearson r: {min_parent_r_linear:.3f}")
-            
-            axs2[idx].text(0.05, 0.95, min_stats_text, transform=axs2[idx].transAxes, 
-                         fontsize=9, va='top', ha='left',
-                         bbox=dict(boxstyle='round', facecolor='white', alpha=0.8))
-            
-            # KDE plot
-            try:
-                if np.std(min_parent_fitness) > 1e-6 and np.std(offspring_fitness) > 1e-6:
+            # Add KDE plot if we have enough different points
+            if min_unique >= 5 and offspring_unique >= 5:
+                try:
                     sns.kdeplot(
                         x=min_parent_fitness, 
                         y=offspring_fitness, 
@@ -1052,49 +1222,48 @@ def plot_offspring_vs_min_max_parent_fitness(diploid_dict, Resu_path, mating_str
                         cmap="Blues", 
                         fill=True, 
                         alpha=0.3, 
-                        label="KDE"
+                        levels=5,
+                        label="Density"
                     )
-            except Exception as e:
-                print(f"Warning: KDE plot failed for min parent in model {model} due to {e}")
+                except Exception as e:
+                    print(f"Warning: KDE plot failed for min parent in {model} model: {e}")
             
-            # Add reference line (x = y)
-            min_val = min(min_parent_fitness.min(), offspring_fitness.min())
-            max_val = max(min_parent_fitness.max(), offspring_fitness.max())
-            axs2[idx].plot([min_val, max_val], [min_val, max_val], 'k--', label='x = y')
-            
-            # Add legend
-            axs2[idx].legend(loc='lower right')
-        else:
-            # Add information message for not enough data
-            axs1[idx].text(0.5, 0.5, f"Insufficient data points ({len(diploids)})\nNeed > 10 for analysis", 
-                         ha='center', va='center', transform=axs1[idx].transAxes,
-                         bbox=dict(boxstyle="round,pad=0.3", fc="lightyellow", ec="orange", alpha=0.8))
-            
-            axs2[idx].text(0.5, 0.5, f"Insufficient data points ({len(diploids)})\nNeed > 10 for analysis", 
-                         ha='center', va='center', transform=axs2[idx].transAxes,
-                         bbox=dict(boxstyle="round,pad=0.3", fc="lightyellow", ec="orange", alpha=0.8))
+            # Always add legend if we have any labeled elements
+            handles2, labels2 = axs2[idx].get_legend_handles_labels()
+            if handles2:
+                axs2[idx].legend(loc='lower right')
+                
+        except Exception as e:
+            # Handle any general processing errors
+            error_msg = str(e)
+            print(f"Error processing {model} model: {error_msg}")
+            for ax in [axs1[idx], axs2[idx]]:
+                ax.text(0.5, 0.5, f"Error processing data:\n{error_msg}", 
+                      ha='center', va='center', transform=ax.transAxes,
+                      bbox=dict(boxstyle="round,pad=0.3", fc="lightyellow", ec="red", alpha=0.8))
     
-    # Set global titles
-    fig1.suptitle(f"Offspring Fitness vs Maximum Parent Fitness\n({mating_strategy} Strategy)")
-    fig2.suptitle(f"Offspring Fitness vs Minimum Parent Fitness\n({mating_strategy} Strategy)")
+    # Set global titles and adjust layout
+    fig1.suptitle(f"Offspring Fitness vs Maximum Parent Fitness\n({mating_strategy} Strategy)", fontsize=16)
+    fig2.suptitle(f"Offspring Fitness vs Minimum Parent Fitness\n({mating_strategy} Strategy)", fontsize=16)
     
-    # Adjust layout and save figures
     plt.figure(fig1.number)
     plt.tight_layout(rect=[0, 0.03, 1, 0.95])
-    plt.savefig(os.path.join(Resu_path, f'offspring_vs_max_parent_fitness_{mating_strategy}.png'), dpi=300, bbox_inches='tight')
+    max_parent_path = os.path.join(Resu_path, f'offspring_vs_max_parent_fitness_{mating_strategy}.png')
+    plt.savefig(max_parent_path, dpi=300, bbox_inches='tight')
     
     plt.figure(fig2.number)
     plt.tight_layout(rect=[0, 0.03, 1, 0.95])
-    plt.savefig(os.path.join(Resu_path, f'offspring_vs_min_parent_fitness_{mating_strategy}.png'), dpi=300, bbox_inches='tight')
-        
-    # Close all figures
+    min_parent_path = os.path.join(Resu_path, f'offspring_vs_min_parent_fitness_{mating_strategy}.png')
+    plt.savefig(min_parent_path, dpi=300, bbox_inches='tight')
+    
+    # Close figures to free memory
     plt.close(fig1)
     plt.close(fig2)
-
+    
 def plot_parent_genomic_distance_vs_offspring_fitness(diploid_dict, Resu_path, mating_strategy):
     """
     Create a figure showing the relationship between parent-parent genomic distance (x-axis)
-    and offspring fitness (y-axis).
+    and offspring fitness (y-axis) with robust error handling.
     
     Parameters:
     -----------
@@ -1108,66 +1277,160 @@ def plot_parent_genomic_distance_vs_offspring_fitness(diploid_dict, Resu_path, m
     models = ["dominant", "recessive", "codominant"]
     fig, axs = plt.subplots(1, 3, figsize=(18, 6), sharex=True, sharey=True)
     
-    for idx, model in enumerate(tqdm(models, desc=f"Creating parent distance plots for {mating_strategy}")):
+    for idx, model in enumerate(tqdm(models, desc=f"Creating genomic distance plots for {mating_strategy}")):
         diploids = diploid_dict.get(model, [])
-        if not diploids:
-            axs[idx].set_title(f"{model.capitalize()} Model (No Data)")
-            continue  # Skip if no data for this model
         
-        # Calculate genomic distances between parents for each offspring
-        parent_distances = []
-        offspring_fitness = []
-        
-        # Process in small batches to avoid memory issues
-        for i in range(0, len(diploids), 100):
-            batch = diploids[i:i+100]
-            for org in batch:
-                distance = calculate_genomic_distance(org.allele1, org.allele2)
-                parent_distances.append(distance)
-                offspring_fitness.append(org.fitness)
-            gc.collect()  # Force garbage collection after each batch
-        
-        parent_distances = np.array(parent_distances)
-        offspring_fitness = np.array(offspring_fitness)
-        
-        if len(parent_distances) > 10:
-            # Scatter plot
-            axs[idx].scatter(
-                parent_distances, 
-                offspring_fitness, 
-                alpha=0.5, 
-                color='blue', 
-                s=10
-            )
-            
-            # Linear regression
-            z = np.polyfit(parent_distances, offspring_fitness, 1)
-            x_vals = np.linspace(parent_distances.min(), parent_distances.max(), 100)
-            axs[idx].plot(x_vals, np.poly1d(z)(x_vals), 'r-', label=f'Linear (R²: {np.corrcoef(parent_distances, offspring_fitness)[0,1]**2:.2f})')
-            
-            # Quadratic regression
-            z2 = np.polyfit(parent_distances, offspring_fitness, 2)
-            axs[idx].plot(x_vals, np.poly1d(z2)(x_vals), 'g--', label='Quadratic Fit')
-        
-        # Customize subplot
-        axs[idx].set_title(f"{model.capitalize()} Model - {len(diploids)}")
+        # Set basic subplot properties
+        axs[idx].set_title(f"{model.capitalize()} Model - {len(diploids) if diploids else 0} organisms")
         axs[idx].set_xlabel("Genomic Distance Between Parents")
         axs[idx].set_ylabel("Offspring Fitness")
         axs[idx].grid(True)
-        axs[idx].legend()
+        
+        # Handle empty data case
+        if not diploids:
+            axs[idx].text(0.5, 0.5, "No Data", 
+                        ha='center', va='center', transform=axs[idx].transAxes,
+                        bbox=dict(boxstyle="round,pad=0.3", fc="lightyellow", ec="orange", alpha=0.8))
+            continue
+        
+        # Calculate genomic distances and collect fitness values
+        parent_distances = []
+        offspring_fitness = []
+        
+        try:
+            # Process in small batches to avoid memory issues
+            for i in range(0, len(diploids), 100):
+                batch = diploids[i:i+100]
+                for org in batch:
+                    distance = calculate_genomic_distance(org.allele1, org.allele2)
+                    parent_distances.append(distance)
+                    offspring_fitness.append(org.fitness)
+                gc.collect()  # Force garbage collection after each batch
+            
+            parent_distances = np.array(parent_distances)
+            offspring_fitness = np.array(offspring_fitness)
+            
+            # Check if we have unique distance values
+            unique_distances = len(np.unique(parent_distances))
+            
+            # Always create scatter plot if we have data
+            axs[idx].scatter(
+                parent_distances, 
+                offspring_fitness, 
+                alpha=0.6, 
+                color='blue', 
+                s=30,
+                label="Data Points"
+            )
+            
+            # Handle cases with no variation in genomic distance
+            if unique_distances <= 1:
+                axs[idx].text(0.5, 0.2, 
+                             f"All parent genomic distances are identical: {parent_distances[0]:.4f}\n"
+                             f"Mean offspring fitness: {np.mean(offspring_fitness):.4f}",
+                             ha='center', va='center', transform=axs[idx].transAxes,
+                             bbox=dict(boxstyle="round,pad=0.3", fc="lightyellow", ec="orange", alpha=0.8))
+                
+                # Add statistical info
+                axs[idx].axhline(np.mean(offspring_fitness), color='red', linestyle='-', 
+                               label=f'Mean Offspring Fitness: {np.mean(offspring_fitness):.4f}')
+            else:
+                # We have variation in distances, so try regressions
+                try:
+                    # Linear regression
+                    from scipy import stats
+                    
+                    # Use scipy.stats.linregress which is more robust than np.polyfit
+                    slope, intercept, r_value, p_value, std_err = stats.linregress(parent_distances, offspring_fitness)
+                    r_squared = r_value**2
+                    
+                    # Create line for plotting
+                    x_range = np.linspace(min(parent_distances), max(parent_distances), 100)
+                    y_pred = slope * x_range + intercept
+                    
+                    # Plot regression line
+                    axs[idx].plot(x_range, y_pred, 'r-', 
+                                 label=f'Linear (R²: {r_squared:.3f})')
+                    
+                    # Try quadratic regression if we have at least 3 unique points
+                    if unique_distances >= 3:
+                        try:
+                            # Use numpy's polynomial fitting with extra error checking
+                            quad_fit = np.polynomial.polynomial.polyfit(
+                                parent_distances, offspring_fitness, 2, full=True
+                            )
+                            
+                            # Extract coefficients
+                            quad_coeffs = quad_fit[0]
+                            
+                            # Function for quadratic prediction
+                            def quad_predict(x):
+                                return quad_coeffs[0] + quad_coeffs[1]*x + quad_coeffs[2]*x*x
+                            
+                            # Calculate predictions
+                            quad_y_pred = [quad_predict(x) for x in x_range]
+                            
+                            # Calculate R² for quadratic fit
+                            y_pred_quad = [quad_predict(x) for x in parent_distances]
+                            y_mean = np.mean(offspring_fitness)
+                            ss_total = np.sum((offspring_fitness - y_mean)**2)
+                            ss_residual = np.sum((offspring_fitness - y_pred_quad)**2)
+                            quad_r2 = 1 - (ss_residual / ss_total) if ss_total > 0 else 0
+                            
+                            # Plot quadratic fit
+                            axs[idx].plot(x_range, quad_y_pred, 'g--', 
+                                         label=f'Quadratic (R²: {quad_r2:.3f})')
+                        except Exception as e:
+                            print(f"Warning: Quadratic regression failed for {model} model: {e}")
+                    
+                    # Add correlation statistics
+                    stats_text = [
+                        f"Linear R²: {r_squared:.3f}",
+                        f"Slope: {slope:.3f}",
+                        f"Correlation: {r_value:.3f}",
+                        f"p-value: {p_value:.3e}",
+                        f"Mean Distance: {np.mean(parent_distances):.3f}",
+                        f"Mean Fitness: {np.mean(offspring_fitness):.3f}"
+                    ]
+                    
+                    axs[idx].text(0.05, 0.95, "\n".join(stats_text), 
+                                transform=axs[idx].transAxes, 
+                                fontsize=9, va='top', ha='left',
+                                bbox=dict(boxstyle='round', facecolor='white', alpha=0.8))
+                    
+                except Exception as e:
+                    # Handle any regression errors
+                    error_msg = str(e).split('\n')[0]  # Get first line of error
+                    print(f"Warning: Regression analysis failed: {error_msg}")
+                    axs[idx].text(0.5, 0.5, f"Regression analysis failed:\n{error_msg}", 
+                                ha='center', va='center', transform=axs[idx].transAxes,
+                                bbox=dict(boxstyle="round,pad=0.3", fc="lightyellow", ec="orange", alpha=0.8))
+            
+            # Always add legend if we have any labeled elements
+            handles, labels = axs[idx].get_legend_handles_labels()
+            if handles:
+                axs[idx].legend(loc='lower right')
+                
+        except Exception as e:
+            # Handle any general processing errors
+            print(f"Error processing {model} model: {e}")
+            axs[idx].text(0.5, 0.5, f"Error processing data:\n{str(e)}", 
+                        ha='center', va='center', transform=axs[idx].transAxes,
+                        bbox=dict(boxstyle="round,pad=0.3", fc="lightyellow", ec="red", alpha=0.8))
     
-    # Add global title
-    plt.suptitle(f"Parent Genomic Distance vs Offspring Fitness\n({mating_strategy} Strategy)")
+    # Global title
+    plt.suptitle(f"Parent Genomic Distance vs Offspring Fitness\n({mating_strategy} Strategy)", fontsize=16)
     plt.tight_layout(rect=[0, 0.03, 1, 0.95])
     
-    # Save the figure
+    # Save figure
     output_path = os.path.join(Resu_path, f'parent_distance_vs_offspring_fitness_{mating_strategy}.png')
     plt.savefig(output_path, dpi=300, bbox_inches='tight')
     plt.close()
-
+    
 def plot_offspring_fitness_vs_offspring_prs(diploid_dict, Resu_path, mating_strategy):
     """
-    Create plots showing the relationship between offspring's own PRS scores and offspring fitness.
+    Create plots showing the relationship between offspring's own PRS scores and offspring fitness,
+    with robust error handling for edge cases like genome size of 1.
     
     Parameters:
     -----------
@@ -1183,92 +1446,189 @@ def plot_offspring_fitness_vs_offspring_prs(diploid_dict, Resu_path, mating_stra
     
     for idx, model in enumerate(tqdm(models, desc=f"Creating Offspring PRS plots for {mating_strategy}")):
         diploids = diploid_dict.get(model, [])
+        
+        # Set basic subplot properties
+        axs[idx].set_title(f"{model.capitalize()} Model - {len(diploids) if diploids else 0} organisms")
+        axs[idx].set_xlabel("Offspring PRS")
+        axs[idx].set_ylabel("Offspring Fitness")
+        axs[idx].grid(True)
+        
+        # Handle empty data case
         if not diploids:
-            axs[idx].set_title(f"{model.capitalize()} Model (No Data)")
-            continue  # Skip if no data for this model
+            axs[idx].text(0.5, 0.5, "No Data", 
+                        ha='center', va='center', transform=axs[idx].transAxes,
+                        bbox=dict(boxstyle="round,pad=0.3", fc="lightyellow", ec="orange", alpha=0.8))
+            continue
         
-        # Calculate offspring PRS and collect offspring fitness
-        offspring_prs = []
-        offspring_fitness = []
-        parent_avg_prs = []
-        
-        # Process in small batches to avoid memory issues
-        for i in range(0, len(diploids), 100):
-            batch = diploids[i:i+100]
-            for org in batch:
-                # Calculate offspring's own PRS
-                org_prs = calculate_diploid_prs(org)
-                offspring_prs.append(org_prs)
-                
-                # Calculate average parent PRS for comparison
-                p1_prs = calculate_prs(org.allele1)
-                p2_prs = calculate_prs(org.allele2)
-                parent_avg_prs.append((p1_prs + p2_prs) / 2)
-                
-                # Get offspring fitness
-                offspring_fitness.append(org.fitness)
+        # Collect data with error handling
+        try:
+            offspring_prs = []
+            offspring_fitness = []
+            parent_avg_prs = []
             
-            gc.collect()  # Force garbage collection after each batch
-        
-        # Convert to numpy arrays for easier manipulation
-        offspring_prs = np.array(offspring_prs)
-        offspring_fitness = np.array(offspring_fitness)
-        parent_avg_prs = np.array(parent_avg_prs)
-        
-        if len(offspring_prs) > 10:
-            # Scatter plot
+            # Process in small batches to avoid memory issues
+            for i in range(0, len(diploids), 100):
+                batch = diploids[i:i+100]
+                for org in batch:
+                    try:
+                        # Calculate offspring's own PRS
+                        org_prs = calculate_diploid_prs(org)
+                        offspring_prs.append(org_prs)
+                        
+                        # Calculate average parent PRS for comparison
+                        p1_prs = calculate_prs(org.allele1)
+                        p2_prs = calculate_prs(org.allele2)
+                        parent_avg_prs.append((p1_prs + p2_prs) / 2)
+                        
+                        # Get offspring fitness
+                        offspring_fitness.append(org.fitness)
+                    except Exception as e:
+                        print(f"Warning: Error processing organism {org.id}: {e}")
+                
+                gc.collect()  # Force garbage collection after each batch
+            
+            # Convert to numpy arrays
+            offspring_prs = np.array(offspring_prs)
+            offspring_fitness = np.array(offspring_fitness)
+            parent_avg_prs = np.array(parent_avg_prs)
+            
+            if len(offspring_prs) == 0:
+                axs[idx].text(0.5, 0.5, "PRS calculation failed for all organisms", 
+                            ha='center', va='center', transform=axs[idx].transAxes,
+                            bbox=dict(boxstyle="round,pad=0.3", fc="lightyellow", ec="orange", alpha=0.8))
+                continue
+            
+            # Check for variation in PRS values
+            unique_prs = len(np.unique(offspring_prs))
+            
+            # Always plot the scatter regardless of variation
             axs[idx].scatter(
                 offspring_prs, 
                 offspring_fitness, 
-                alpha=0.5, 
+                alpha=0.6, 
                 color='purple', 
-                s=10,
+                s=30,
                 label="Offspring PRS"
             )
             
-            # Linear regression
-            z = np.polyfit(offspring_prs, offspring_fitness, 1)
-            x_vals = np.linspace(offspring_prs.min(), offspring_prs.max(), 100)
-            r_squared = np.corrcoef(offspring_prs, offspring_fitness)[0,1]**2
-            axs[idx].plot(x_vals, np.poly1d(z)(x_vals), 'r-', 
-                      label=f'Linear (R²: {r_squared:.2f})')
+            # Handle case with no PRS variation
+            if unique_prs <= 1:
+                axs[idx].text(0.5, 0.2, 
+                             f"All offspring PRS values are identical: {offspring_prs[0]:.4f}\n"
+                             f"Mean fitness: {np.mean(offspring_fitness):.4f}",
+                             ha='center', va='center', transform=axs[idx].transAxes,
+                             bbox=dict(boxstyle="round,pad=0.3", fc="lightyellow", ec="orange", alpha=0.8))
+                
+                # Add mean fitness line
+                axs[idx].axhline(np.mean(offspring_fitness), color='red', linestyle='-', 
+                               label=f'Mean Fitness: {np.mean(offspring_fitness):.4f}')
+            else:
+                # We have variation, so try regression
+                try:
+                    # Linear regression using scipy.stats.linregress (more robust)
+                    from scipy import stats
+                    slope, intercept, r_value, p_value, std_err = stats.linregress(offspring_prs, offspring_fitness)
+                    r_squared = r_value**2
+                    
+                    # Calculate points for plotting the regression line
+                    x_range = np.linspace(min(offspring_prs), max(offspring_prs), 100)
+                    y_pred = slope * x_range + intercept
+                    
+                    # Plot the regression line
+                    axs[idx].plot(x_range, y_pred, 'r-', 
+                                 label=f'Linear (R²: {r_squared:.3f})')
+                    
+                    # Try quadratic regression with proper error handling
+                    if unique_prs >= 3:
+                        try:
+                            # Use scipy.optimize curve_fit for more robust fitting
+                            from scipy.optimize import curve_fit
+                            
+                            # Define quadratic function
+                            def quadratic(x, a, b, c):
+                                return a * x**2 + b * x + c
+                            
+                            # Fit curve with bounds to prevent overflow
+                            popt, _ = curve_fit(quadratic, offspring_prs, offspring_fitness)
+                            
+                            # Calculate predictions for plotting
+                            quad_y_pred = quadratic(x_range, *popt)
+                            
+                            # Calculate R² for quadratic fit
+                            all_y_pred = quadratic(offspring_prs, *popt)
+                            y_mean = np.mean(offspring_fitness)
+                            ss_total = np.sum((offspring_fitness - y_mean)**2)
+                            ss_residual = np.sum((offspring_fitness - all_y_pred)**2)
+                            quad_r2 = 1 - (ss_residual / ss_total) if ss_total > 0 else 0
+                            
+                            # Plot quadratic fit
+                            axs[idx].plot(x_range, quad_y_pred, 'g--', 
+                                         label=f'Quadratic (R²: {quad_r2:.3f})')
+                        except Exception as e:
+                            print(f"Warning: Quadratic fit failed for model {model}: {e}")
+                    
+                    # Calculate correlations for offspring and parent PRS
+                    offspring_corr = r_value  # Already calculated above
+                    
+                    # Calculate parent-fitness correlation only if we have non-constant parent PRS
+                    if len(np.unique(parent_avg_prs)) > 1:
+                        try:
+                            parent_corr, _ = stats.pearsonr(parent_avg_prs, offspring_fitness)
+                        except Exception:
+                            parent_corr = np.nan
+                    else:
+                        parent_corr = np.nan
+                    
+                    # Add statistics text
+                    stats_text = [
+                        f"Linear R²: {r_squared:.3f}",
+                        f"Slope: {slope:.3f}",
+                        f"Offspring PRS-Fitness Corr: {offspring_corr:.3f}"
+                    ]
+                    
+                    if not np.isnan(parent_corr):
+                        stats_text.append(f"Parent PRS-Fitness Corr: {parent_corr:.3f}")
+                    
+                    stats_text.extend([
+                        f"Mean PRS: {np.mean(offspring_prs):.3f}",
+                        f"Mean Fitness: {np.mean(offspring_fitness):.3f}"
+                    ])
+                    
+                    axs[idx].text(0.05, 0.95, "\n".join(stats_text), 
+                                transform=axs[idx].transAxes, 
+                                fontsize=9, va='top', ha='left',
+                                bbox=dict(boxstyle='round', facecolor='white', alpha=0.8))
+                    
+                except Exception as e:
+                    # Handle regression errors
+                    error_msg = str(e).split('\n')[0]  # Get first line only
+                    print(f"Warning: Regression failed for {model} model: {error_msg}")
+                    axs[idx].text(0.5, 0.5, f"Regression analysis failed:\n{error_msg}", 
+                                ha='center', va='center', transform=axs[idx].transAxes,
+                                bbox=dict(boxstyle="round,pad=0.3", fc="lightyellow", ec="orange", alpha=0.8))
             
-            # Quadratic regression
-            z2 = np.polyfit(offspring_prs, offspring_fitness, 2)
-            axs[idx].plot(x_vals, np.poly1d(z2)(x_vals), 'g--', label='Quadratic Fit')
-            
-            # Calculate additional statistics
-            # Compare offspring PRS vs parent average PRS correlation with fitness
-            corr_offspring = np.corrcoef(offspring_prs, offspring_fitness)[0,1]
-            corr_parents = np.corrcoef(parent_avg_prs, offspring_fitness)[0,1]
-            
-            # Customize subplot
-            axs[idx].set_title(f"{model.capitalize()} Model - {len(diploids)}")
-            axs[idx].set_xlabel("Offspring PRS")
-            axs[idx].set_ylabel("Offspring Fitness")
-            axs[idx].grid(True)
-            axs[idx].legend()
-            
-            # Add annotations with correlation values
-            axs[idx].annotate(
-                f"Offspring PRS-Fitness Correlation: {corr_offspring:.3f}\n"
-                f"R²: {r_squared:.3f}\n"
-                f"Parent Avg PRS-Fitness Correlation: {corr_parents:.3f}", 
-                xy=(0.05, 0.95), xycoords='axes fraction',
-                bbox=dict(boxstyle="round,pad=0.3", fc="white", ec="gray", alpha=0.8),
-                ha='left', va='top'
-            )
+            # Always add legend if we have any labeled elements
+            handles, labels = axs[idx].get_legend_handles_labels()
+            if handles:
+                axs[idx].legend(loc='lower right')
+                
+        except Exception as e:
+            # Handle any general errors
+            print(f"Error processing model {model}: {e}")
+            axs[idx].text(0.5, 0.5, f"Error processing data:\n{str(e)}", 
+                        ha='center', va='center', transform=axs[idx].transAxes,
+                        bbox=dict(boxstyle="round,pad=0.3", fc="lightyellow", ec="red", alpha=0.8))
     
-    # Add global title
-    plt.suptitle(f"Offspring PRS vs Offspring Fitness\n({mating_strategy} Strategy)")
+    # Global title
+    plt.suptitle(f"Offspring PRS vs Offspring Fitness\n({mating_strategy} Strategy)", fontsize=16)
     plt.tight_layout(rect=[0, 0.03, 1, 0.95])
     
-    # Save the figure
+    # Save figure
     output_path = os.path.join(Resu_path, f'offspring_prs_vs_offspring_fitness_{mating_strategy}.png')
     plt.savefig(output_path, dpi=300, bbox_inches='tight')
     plt.close()
-
-
+    
+    
 #######################################################################
 # Simulation functions
 #######################################################################

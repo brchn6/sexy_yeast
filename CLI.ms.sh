@@ -62,3 +62,12 @@ bsub -q gsla-cpu -R rusage[mem=82000] /home/labs/pilpel/barc/sexy_yeast/main_sim
 bsub -q gsla-cpu -R rusage[mem=82000] /home/labs/pilpel/barc/sexy_yeast/main_simulation_BC.py --generations 11 --genome_size 128 --beta 0.8 --rho 0.25 --mating_strategy all_vs_all --output_dir /home/labs/pilpel/barc/sexy_yeast/Results/11gen_128genomes_0.8beta_0.25rho_all_vs_all
 bsub -q gsla-cpu -R rusage[mem=82000] /home/labs/pilpel/barc/sexy_yeast/main_simulation_BC.py --generations 11 --genome_size 128 --beta 0.9 --rho 0.25 --mating_strategy all_vs_all --output_dir /home/labs/pilpel/barc/sexy_yeast/Results/11gen_128genomes_0.9beta_0.25rho_all_vs_all
 bsub -q gsla-cpu -R rusage[mem=82000] /home/labs/pilpel/barc/sexy_yeast/main_simulation_BC.py --generations 11 --genome_size 128 --beta 1 --rho 0.25 --mating_strategy all_vs_all --output_dir /home/labs/pilpel/barc/sexy_yeast/Results/11gen_128genomes_1beta_0.25rho_all_vs_all
+
+
+
+
+
+
+bsub -q gsla-cpu -R rusage[mem=82000] /home/labs/pilpel/barc/sexy_yeast/main_simulation_BC.py --generations 4 --genome_size 4 --beta 0 --rho 0.25 --mating_strategy all_vs_all --output_dir /home/labs/pilpel/barc/sexy_yeast/Results/4gen_4genomes_T1
+bsub -q gsla-cpu -R rusage[mem=82000] /home/labs/pilpel/barc/sexy_yeast/main_simulation_BC.py --generations 4 --genome_size 4 --beta 0 --rho 0.25 --mating_strategy all_vs_all --output_dir /home/labs/pilpel/barc/sexy_yeast/Results/4gen_4genomes_T2
+bsub -q gsla-cpu -R rusage[mem=82000] /home/labs/pilpel/barc/sexy_yeast/main_simulation_BC.py --generations 4 --genome_size 4 --beta 0 --rho 0.25 --mating_strategy all_vs_all --output_dir /home/labs/pilpel/barc/sexy_yeast/Results/4gen_4genomes_T3
