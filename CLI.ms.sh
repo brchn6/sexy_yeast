@@ -172,7 +172,7 @@ bsub -q short -R rusage[mem=10GB] /home/labs/pilpel/barc/sexy_yeast/src/main_sim
 
 
 
-bsub -q short -R rusage[mem=10GB] /home/labs/pilpel/barc/sexy_yeast/src/main_simulation_BC.py --generations 5 --genome_size 128 --beta 0   --rho 0.25 --mating_strategy all_vs_all --output_dir /home/labs/pilpel/barc/sexy_yeast/Results/walla --random_seed_env 42 --num_runs 12 --save_individual_runs --initial_fitness 0 --fitness_method single_position --mutation_seed 42 --initial_genome_seed 42
+bsub -q short -R rusage[mem=10GB] /home/labs/pilpel/barc/sexy_yeast/src/main_simulation_BC.py --generations 5 --genome_size 12 --beta 0   --rho 0.25 --mating_strategy all_vs_all --output_dir /home/labs/pilpel/barc/sexy_yeast/Results/walla --random_seed_env 42 --num_runs 12 --save_individual_runs --initial_fitness 0 --fitness_method single_position --mutation_seed 42 --initial_genome_seed 42
 bsub -q short -R rusage[mem=10GB] /home/labs/pilpel/barc/sexy_yeast/src/main_simulation_BC.py --generations 5 --genome_size 12 --beta 0   --rho 0.25 --mating_strategy all_vs_all --output_dir /home/labs/pilpel/barc/sexy_yeast/Results/walla --random_seed_env 42 --num_runs 12 --save_individual_runs --initial_fitness 0 --fitness_method single_position --mutation_seed 42 --initial_genome_seed 42
 bsub -q short -R rusage[mem=10GB] /home/labs/pilpel/barc/sexy_yeast/src/main_simulation_BC.py --generations 6 --genome_size 12 --beta 0   --rho 0.25 --mating_strategy all_vs_all --output_dir /home/labs/pilpel/barc/sexy_yeast/Results/walla --random_seed_env 42 --num_runs 12 --save_individual_runs --initial_fitness 0 --fitness_method single_position --mutation_seed 42 --initial_genome_seed 42
 
@@ -351,3 +351,61 @@ bsub -q long -R rusage[mem=42GB] /home/labs/pilpel/barc/sexy_yeast/src/main_simu
 
 bsub -q long -R rusage[mem=42GB] /home/labs/pilpel/barc/sexy_yeast/src/main_simulation_BC.py --genome_size 3000 --generations 7 --mating_strategy all_vs_all --fitness_method sherrington_kirkpatrick --beta 0 --rho 0.25 --num_runs 1000 --output_dir /home/labs/pilpel/barc/sexy_yeast/Results/1000runs/sumsumiii --initial_fitness 0
 bsub -q long -R rusage[mem=42GB] /home/labs/pilpel/barc/sexy_yeast/src/main_simulation_BC.py --genome_size 3000 --generations 7 --mating_strategy all_vs_all --fitness_method sherrington_kirkpatrick --beta 0 --rho 0.25 --num_runs 100 --output_dir /home/labs/pilpel/barc/sexy_yeast/Results/100runs/sumsumiii --initial_fitness 0
+
+
+
+---22-Apr-2025 12:50:36---
+bsub -q long -R rusage[mem=42GB] /home/labs/pilpel/barc/sexy_yeast/src/main_simulation_BC.py --genome_size 3000 --generations 4 --mating_strategy all_vs_all --fitness_method sherrington_kirkpatrick --beta 0 --rho 0.25 --num_runs 1000 --output_dir /home/labs/pilpel/barc/sexy_yeast/Results/1000runs/sumsumiii --initial_fitness 0
+bsub -q long -R rusage[mem=42GB] /home/labs/pilpel/barc/sexy_yeast/src/main_simulation_BC.py --genome_size 3000 --generations 3 --mating_strategy all_vs_all --fitness_method sherrington_kirkpatrick --beta 0 --rho 0.25 --num_runs 100 --output_dir /home/labs/pilpel/barc/sexy_yeast/Results/100runs/sumsumiii --initial_fitness 0
+bsub -q long -R rusage[mem=42GB] /home/labs/pilpel/barc/sexy_yeast/src/main_simulation_BC.py --genome_size 3000 --generations 4 --mating_strategy all_vs_all --fitness_method sherrington_kirkpatrick --beta 0 --rho 0.25 --num_runs 1000 --output_dir /home/labs/pilpel/barc/sexy_yeast/Results/1000runs/sumsumiii --initial_fitness 0
+bsub -q long -R rusage[mem=42GB] /home/labs/pilpel/barc/sexy_yeast/src/main_simulation_BC.py --genome_size 3000 --generations 3 --mating_strategy all_vs_all --fitness_method sherrington_kirkpatrick --beta 0 --rho 0.25 --num_runs 100 --output_dir /home/labs/pilpel/barc/sexy_yeast/Results/100runs/sumsumiii --initial_fitness 0
+
+---24-Apr-2025 16:18:21---
+bsub -q long -R rusage[mem=42GB] /home/labs/pilpel/barc/sexy_yeast/src/main_simulation_BC.py --genome_size 30 --generations 3 --mating_strategy all_vs_all --fitness_method sherrington_kirkpatrick --beta 0 --rho 0.25 --num_runs 1 --output_dir /home/labs/pilpel/barc/sexy_yeast/Results/ --initial_fitness 0
+/home/labs/pilpel/barc/sexy_yeast/src/main_simulation_BC.py --genome_size 30 --generations 3 --mating_strategy all_vs_all --fitness_method sherrington_kirkpatrick --beta 0 --rho 0.25 --num_runs 1 --output_dir /home/labs/pilpel/barc/sexy_yeast/Results/ --initial_fitness 0 --save_individual_runs
+/home/labs/pilpel/barc/sexy_yeast/src/main_simulation_BC.py --genome_size 30 --generations 3 --mating_strategy all_vs_all --fitness_method sherrington_kirkpatrick --beta 0 --rho 0.25  --output_dir /home/labs/pilpel/barc/sexy_yeast/Results/ --initial_fitness 0 --save_individual_runs
+/home/labs/pilpel/barc/sexy_yeast/src/main_simulation_BC.py --genome_size 30 --generations 3 --mating_strategy all_vs_all --fitness_method single_position --beta 0 --rho 0.25  --output_dir /home/labs/pilpel/barc/sexy_yeast/Results/ --initial_fitness 0 --save_individual_runs
+bsub -q short  -R rusage[mem=2GB]  /home/labs/pilpel/barc/sexy_yeast/src/main_simulation_BC.py --genome_size 2 --generations 3 --mating_strategy all_vs_all --fitness_method single_position --beta 0 --rho 0.25  --output_dir /home/labs/pilpel/barc/sexy_yeast/Results/ --initial_fitness 0 --save_individual_runs 
+bsub -q short  -R rusage[mem=2GB]  /home/labs/pilpel/barc/sexy_yeast/src/main_simulation_BC.py --genome_size 3 --generations 3 --mating_strategy all_vs_all --fitness_method single_position --beta 0 --rho 0.25  --output_dir /home/labs/pilpel/barc/sexy_yeast/Results/ --initial_fitness 0 --save_individual_runs
+bsub -q short  -R rusage[mem=2GB]  /home/labs/pilpel/barc/sexy_yeast/src/main_simulation_BC.py --genome_size 1 --generations 3 --mating_strategy all_vs_all --fitness_method single_position --beta 0 --rho 0.25  --output_dir /home/labs/pilpel/barc/sexy_yeast/Results/ --initial_fitness 0 --save_individual_runs
+
+
+---24-Apr-2025 19:09:34---
+
+
+
+bsub -q short -R rusage[mem=10GB] /home/labs/pilpel/barc/sexy_yeast/src/main_simulation_BC.py --genome_size 24 --generations 9 --mating_strategy mating_types --fitness_method sherrington_kirkpatrick --beta 0 --rho 0.25 --num_runs 8 --output_dir /home/labs/pilpel/barc/sexy_yeast/Results/GeneticDistanceEffectsonOffspringFitness_moderatebetaandrho --save_individual_runs 
+bsub -q short -R rusage[mem=10GB] /home/labs/pilpel/barc/sexy_yeast/src/main_simulation_BC.py --genome_size 24 --generations 9 --mating_strategy mating_types --fitness_method sherrington_kirkpatrick --beta 0.5 --rho 0.25 --num_runs 8 --output_dir /home/labs/pilpel/barc/sexy_yeast/Results/GeneticDistanceEffectsonOffspringFitness_moderatebetaandrho --save_individual_runs 
+bsub -q short -R rusage[mem=10GB] /home/labs/pilpel/barc/sexy_yeast/src/main_simulation_BC.py --genome_size 24 --generations 9 --mating_strategy mating_types --fitness_method sherrington_kirkpatrick --beta 1 --rho 0.25 --num_runs 8 --output_dir /home/labs/pilpel/barc/sexy_yeast/Results/GeneticDistanceEffectsonOffspringFitness_moderatebetaandrho --save_individual_runs 
+
+
+bsub -q short -R rusage[mem=10GB] /home/labs/pilpel/barc/sexy_yeast/src/main_simulation_BC.py --genome_size 24 --generations 9 --mating_strategy mating_types --fitness_method sherrington_kirkpatrick --beta 1 --rho 0.25 --num_runs 8 --output_dir /home/labs/pilpel/barc/sexy_yeast/Results/GeneticDistanceEffectsonOffspringFitness_moderatebetaandrho --save_individual_runs 
+
+
+
+---24-Apr-2025 19:09:51---
+
+bsub -q gsla-cpu -R rusage[mem=42GB] /home/labs/pilpel/barc/sexy_yeast/src/main_simulation_BC.py --genome_size 3000 --generations 7 --mating_strategy all_vs_all --fitness_method single_position --beta 0 --rho 0.25 --num_runs 10 --output_dir /home/labs/pilpel/barc/sexy_yeast/Results/55 --save_individual_runs --initial_fitness 0
+bsub -q gsla-cpu -R rusage[mem=42GB] /home/labs/pilpel/barc/sexy_yeast/src/main_simulation_BC.py --genome_size 3000 --generations 7 --mating_strategy all_vs_all --fitness_method sherrington_kirkpatrick --beta 0 --rho 0.25 --num_runs 10 --output_dir /home/labs/pilpel/barc/sexy_yeast/Results/55 --save_individual_runs --initial_fitness 0
+bsub -q gsla-cpu -R rusage[mem=42GB] /home/labs/pilpel/barc/sexy_yeast/src/main_simulation_BC.py --genome_size 30 --generations 7 --mating_strategy all_vs_all --fitness_method single_position --beta 0 --rho 0.25 --num_runs 10 --output_dir /home/labs/pilpel/barc/sexy_yeast/Results/55 --save_individual_runs --initial_fitness 0
+bsub -q gsla-cpu -R rusage[mem=42GB] /home/labs/pilpel/barc/sexy_yeast/src/main_simulation_BC.py --genome_size 30 --generations 7 --mating_strategy all_vs_all --fitness_method sherrington_kirkpatrick --beta 0 --rho 0.25 --num_runs 10 --output_dir /home/labs/pilpel/barc/sexy_yeast/Results/55 --save_individual_runs --initial_fitness 0
+bsub -q gsla-cpu -R rusage[mem=42GB] /home/labs/pilpel/barc/sexy_yeast/src/main_simulation_BC.py --genome_size 3 --generations 7 --mating_strategy all_vs_all --fitness_method single_position --beta 0 --rho 0.25 --num_runs 10 --output_dir /home/labs/pilpel/barc/sexy_yeast/Results/55 --save_individual_runs --initial_fitness 0
+bsub -q gsla-cpu -R rusage[mem=42GB] /home/labs/pilpel/barc/sexy_yeast/src/main_simulation_BC.py --genome_size 3 --generations 7 --mating_strategy all_vs_all --fitness_method sherrington_kirkpatrick --beta 0 --rho 0.25 --num_runs 10 --output_dir /home/labs/pilpel/barc/sexy_yeast/Results/55 --save_individual_runs --initial_fitness 0
+
+bsub -q gsla-cpu -R rusage[mem=42GB] /home/labs/pilpel/barc/sexy_yeast/src/main_simulation_BC.py --genome_size 3 --generations 7 --mating_strategy all_vs_all --fitness_method single_position --beta 0 --rho 0.25 --num_runs 100 --output_dir /home/labs/pilpel/barc/sexy_yeast/Results/100runs/sumsumiii --initial_fitness 0
+bsub -q gsla-cpu -R rusage[mem=42GB] /home/labs/pilpel/barc/sexy_yeast/src/main_simulation_BC.py --genome_size 3 --generations 7 --mating_strategy all_vs_all --fitness_method single_position --beta 0 --rho 0.25 --num_runs 1000 --output_dir /home/labs/pilpel/barc/sexy_yeast/Results/1000runs/sumsumiii --initial_fitness 0
+
+
+bsub -q gsla-cpu -R rusage[mem=42GB] /home/labs/pilpel/barc/sexy_yeast/src/main_simulation_BC.py --genome_size 300 --generations 7 --mating_strategy all_vs_all --fitness_method sherrington_kirkpatrick --beta 0 --rho 0.25 --num_runs 100 --output_dir /home/labs/pilpel/barc/sexy_yeast/Results/100runs/sumsumiii --initial_fitness 0
+bsub -q gsla-cpu -R rusage[mem=42GB] /home/labs/pilpel/barc/sexy_yeast/src/main_simulation_BC.py --genome_size 30 --generations 7 --mating_strategy all_vs_all --fitness_method sherrington_kirkpatrick --beta 0 --rho 0.25 --num_runs 100 --output_dir /home/labs/pilpel/barc/sexy_yeast/Results/100runs/sumsumiii --initial_fitness 0
+bsub -q gsla-cpu -R rusage[mem=42GB] /home/labs/pilpel/barc/sexy_yeast/src/main_simulation_BC.py --genome_size 3 --generations 7 --mating_strategy all_vs_all --fitness_method sherrington_kirkpatrick --beta 0 --rho 0.25 --num_runs 100 --output_dir /home/labs/pilpel/barc/sexy_yeast/Results/100runs/sumsumiii --initial_fitness 0
+
+bsub -q gsla-cpu -R rusage[mem=42GB] /home/labs/pilpel/barc/sexy_yeast/src/main_simulation_BC.py --genome_size 300 --generations 7 --mating_strategy all_vs_all --fitness_method sherrington_kirkpatrick --beta 0 --rho 0.25 --num_runs 1000 --output_dir /home/labs/pilpel/barc/sexy_yeast/Results/1000runs/sumsumiii --initial_fitness 0
+bsub -q gsla-cpu -R rusage[mem=42GB] /home/labs/pilpel/barc/sexy_yeast/src/main_simulation_BC.py --genome_size 30 --generations 7 --mating_strategy all_vs_all --fitness_method sherrington_kirkpatrick --beta 0 --rho 0.25 --num_runs 1000 --output_dir /home/labs/pilpel/barc/sexy_yeast/Results/1000runs/sumsumiii --initial_fitness 0
+bsub -q gsla-cpu -R rusage[mem=42GB] /home/labs/pilpel/barc/sexy_yeast/src/main_simulation_BC.py --genome_size 3 --generations 7 --mating_strategy all_vs_all --fitness_method sherrington_kirkpatrick --beta 0 --rho 0.25 --num_runs 1000 --output_dir /home/labs/pilpel/barc/sexy_yeast/Results/1000runs/sumsumiii --initial_fitness 0
+
+
+bsub -q gsla-cpu -R rusage[mem=42GB] /home/labs/pilpel/barc/sexy_yeast/src/main_simulation_BC.py --genome_size 2 --generations 7 --mating_strategy all_vs_all --fitness_method single_position --beta 0 --rho 0.25 --num_runs 10 --output_dir /home/labs/pilpel/barc/sexy_yeast/Results/ --save_individual_runs --initial_fitness 0 --random_seed_env 42
+bsub -q gsla-cpu -R rusage[mem=42GB] /home/labs/pilpel/barc/sexy_yeast/src/main_simulation_BC.py --genome_size 2 --generations 2 --mating_strategy all_vs_all --fitness_method single_position --beta 0 --rho 0.25 --num_runs 1 --output_dir /home/labs/pilpel/barc/sexy_yeast/Results/ --initial_fitness 0  --random_seed_env 42 --save_individual_runs
+bsub -q gsla-cpu -R rusage[mem=42GB] /home/labs/pilpel/barc/sexy_yeast/src/main_simulation_BC.py --genome_size 4 --generations 7 --mating_strategy all_vs_all --fitness_method single_position --beta 0 --rho 0.25 --num_runs 10 --output_dir /home/labs/pilpel/barc/sexy_yeast/Results/ --save_individual_runs --initial_fitness 0 --random_seed_env 42
+bsub -q gsla-cpu -R rusage[mem=42GB] /home/labs/pilpel/barc/sexy_yeast/src/main_simulation_BC.py --genome_size 4 --generations 2 --mating_strategy all_vs_all --fitness_method single_position --beta 0 --rho 0.25 --num_runs 1 --output_dir /home/labs/pilpel/barc/sexy_yeast/Results/ --initial_fitness 0  --random_seed_env 42 --save_individual_runs

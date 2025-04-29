@@ -1042,7 +1042,7 @@ def log_trend_analysis(log, trend_analysis):
 
 def aggregate_simulation_results(all_runs_data, Resu_path):
     """
-    Aggregate and analyze results from multiple simulation runs.
+    Aggregate and analyze results from multiple simulation runs with comprehensive data collection.
     
     Parameters:
     -----------
@@ -1055,15 +1055,39 @@ def aggregate_simulation_results(all_runs_data, Resu_path):
     --------
     dict
         Dictionary containing aggregated statistics
+    pandas.DataFrame
+        DataFrame containing metrics from all runs
+    dict
+        Comprehensive data structure with all collected data
     """
     # Extract key metrics from each run
     run_metrics = []
     
+    # Create comprehensive data store for all raw data
+    comprehensive_data = {
+        "runs": {},
+        "diploid_data": {},
+        "regression_stats": {},
+        "correlation_data": {},
+        "raw_trajectories": {},
+        "simulation_parameters": {},
+        "prs_data": {},  # Add PRS data storage
+        "genomic_data": {},  # Add genomic data storage
+        "parent_offspring_pairs": {}  # Add raw parent-offspring pairs
+    }
+    
+    # Try to extract diploid data from the runs if available
     for run_idx, run_data in enumerate(all_runs_data):
-        # Extract relevant metrics from each run's summary stats
+        run_id = run_idx + 1
+        
+        # Get simulation parameters from the first run
+        if run_idx == 0 and "parameters" in run_data:
+            comprehensive_data["simulation_parameters"] = run_data["parameters"]
+        
+        # Extract run info for the metrics dataframe
         summary = run_data["summary_stats"]
         run_info = {
-            "run_id": run_idx + 1,
+            "run_id": run_id,
             "initial_fitness": summary["initial_fitness"],
             "final_fitness": summary["final_fitness"],
             "fitness_improvement_percent": summary["fitness_improvement_percent"],
@@ -1071,27 +1095,98 @@ def aggregate_simulation_results(all_runs_data, Resu_path):
             "final_fitness_std": summary["fitness_std_final"],
         }
         
-        # Add diploid model statistics if available
+        # Store more detailed generation statistics
+        if "generation_stats" in run_data:
+            comprehensive_data["runs"][run_id] = {
+                "generation_stats": run_data["generation_stats"]
+            }
+        
+        # Store fitness distribution data if available
+        if "last_generation_distribution" in summary:
+            comprehensive_data["runs"][run_id]["fitness_distribution"] = summary["last_generation_distribution"]
+        
+        # Add diploid model statistics
+        comprehensive_data["diploid_data"][run_id] = {}
+        comprehensive_data["prs_data"][run_id] = {}
+        comprehensive_data["genomic_data"][run_id] = {}
+        comprehensive_data["parent_offspring_pairs"][run_id] = {}
+        
+        # Check if run_data contains the actual diploid_offspring_dict
+        if "diploid_offspring_dict" in run_data:
+            # If we have the actual diploid organisms, extract PRS and genomic data
+            for model, organisms in run_data["diploid_offspring_dict"].items():
+                # Store PRS data
+                prs_values = []
+                genomic_distances = []
+                parent_offspring_pairs = []
+                
+                for org in organisms:
+                    try:
+                        # Calculate PRS
+                        prs = calculate_diploid_prs(org)
+                        prs_values.append(prs)
+                        
+                        # Calculate genomic distance
+                        dist = calculate_genomic_distance(org.allele1, org.allele2)
+                        genomic_distances.append(dist)
+                        
+                        # Store parent-offspring fitness pairs
+                        parent_offspring_pairs.append({
+                            "parent1_fitness": org.parent1_fitness,
+                            "parent2_fitness": org.parent2_fitness,
+                            "offspring_fitness": org.fitness,
+                            "avg_parent_fitness": org.avg_parent_fitness,
+                            "genomic_distance": dist,
+                            "prs": prs
+                        })
+                    except Exception as e:
+                        print(f"Error processing organism for run {run_id}, model {model}: {e}")
+                
+                # Store the data
+                comprehensive_data["prs_data"][run_id][model] = prs_values
+                comprehensive_data["genomic_data"][run_id][model] = genomic_distances
+                comprehensive_data["parent_offspring_pairs"][run_id][model] = parent_offspring_pairs
+        
         for model in ["dominant", "recessive", "codominant"]:
             if model in summary["diploid_stats"]:
                 model_stats = summary["diploid_stats"][model]
-                # Store slope values for parent fitness vs offspring fitness
-                parent_fitness_slope = model_stats.get("fitness_regression_stats", {}).get("linear_slope", 0)
-                # Store slope values for genomic distance vs offspring fitness
-                distance_fitness_slope = model_stats.get("distance_regression_stats", {}).get("linear_slope", 0)
+                
+                # Store parent-offspring regression data
+                parent_fitness_stats = model_stats.get("fitness_regression_stats", {})
+                distance_fitness_stats = model_stats.get("distance_regression_stats", {})
+                
+                # Extract key metrics for the summary dataframe
+                parent_fitness_slope = parent_fitness_stats.get("linear_slope", 0)
+                distance_fitness_slope = distance_fitness_stats.get("linear_slope", 0)
                 
                 run_info.update({
                     f"{model}_avg_offspring_fitness": model_stats.get("avg_offspring_fitness", 0),
                     f"{model}_fitness_improvement": model_stats.get("fitness_improvement", 0),
                     f"{model}_avg_genomic_distance": model_stats.get("avg_genomic_distance", 0),
-                    f"{model}_parent_fitness_r2": model_stats.get("fitness_regression_stats", {}).get("linear_r_squared", 0),
+                    f"{model}_parent_fitness_r2": parent_fitness_stats.get("linear_r_squared", 0),
                     f"{model}_parent_fitness_slope": parent_fitness_slope,
-                    f"{model}_distance_fitness_r2": model_stats.get("distance_regression_stats", {}).get("linear_r_squared", 0),
+                    f"{model}_parent_fitness_p_value": parent_fitness_stats.get("linear_p_value", 1),
+                    f"{model}_distance_fitness_r2": distance_fitness_stats.get("linear_r_squared", 0),
                     f"{model}_distance_fitness_slope": distance_fitness_slope,
-                    # Track if slopes are positive or negative
+                    f"{model}_distance_fitness_p_value": distance_fitness_stats.get("linear_p_value", 1),
                     f"{model}_parent_fitness_slope_sign": "positive" if parent_fitness_slope > 0 else "negative",
                     f"{model}_distance_fitness_slope_sign": "positive" if distance_fitness_slope > 0 else "negative",
+                    # Add quadratic regression statistics
+                    f"{model}_parent_fitness_quad_r2": parent_fitness_stats.get("quadratic_r_squared", 0),
+                    f"{model}_distance_fitness_quad_r2": distance_fitness_stats.get("quadratic_r_squared", 0),
                 })
+                
+                # Store detailed model statistics for comprehensive analysis
+                comprehensive_data["diploid_data"][run_id][model] = model_stats
+                
+                # Store all regression statistics
+                if "regression_stats" not in comprehensive_data:
+                    comprehensive_data["regression_stats"] = {}
+                if run_id not in comprehensive_data["regression_stats"]:
+                    comprehensive_data["regression_stats"][run_id] = {}
+                    
+                comprehensive_data["regression_stats"][run_id][f"{model}_parent_fitness"] = parent_fitness_stats
+                comprehensive_data["regression_stats"][run_id][f"{model}_distance_fitness"] = distance_fitness_stats
         
         run_metrics.append(run_info)
     
@@ -1186,24 +1281,53 @@ def aggregate_simulation_results(all_runs_data, Resu_path):
                 "distance_fitness_r2": {
                     "mean": metrics_df[f"{model}_distance_fitness_r2"].mean(),
                     "std": metrics_df[f"{model}_distance_fitness_r2"].std(),
+                },
+                # Add quadratic fit R² statistics
+                "parent_fitness_quad_r2": {
+                    "mean": metrics_df[f"{model}_parent_fitness_quad_r2"].mean(),
+                    "std": metrics_df[f"{model}_parent_fitness_quad_r2"].std(),
+                },
+                "distance_fitness_quad_r2": {
+                    "mean": metrics_df[f"{model}_distance_fitness_quad_r2"].mean(),
+                    "std": metrics_df[f"{model}_distance_fitness_quad_r2"].std(),
                 }
             }
     
-    # Save the raw data and aggregated statistics as JSON
+    # Add calculated correlation data between various metrics
+    try:
+        # Only select numeric columns for correlation
+        numeric_cols = metrics_df.select_dtypes(include=[np.number]).columns
+        correlation_matrix = metrics_df[numeric_cols].corr()
+        comprehensive_data["correlation_data"]["metrics_correlation_matrix"] = correlation_matrix.to_dict()
+    except Exception as e:
+        print(f"Could not calculate correlation matrix: {e}")
+    
+    # Save the raw metrics data as JSON
     metrics_file = os.path.join(Resu_path, "run_metrics.json")
     with open(metrics_file, 'w') as f:
         json.dump(run_metrics, f, indent=2, default=numpy_json_encoder)
 
+    # Save aggregated statistical summary
     aggregated_file = os.path.join(Resu_path, "aggregated_stats.json")
     with open(aggregated_file, 'w') as f:
         json.dump(aggregated_stats, f, indent=2, default=numpy_json_encoder)
+    
+    # Save comprehensive data structure with all raw data
+    comprehensive_file = os.path.join(Resu_path, "comprehensive_data.json")
+    with open(comprehensive_file, 'w') as f:
+        json.dump(comprehensive_data, f, indent=2, default=numpy_json_encoder)
     
     # Save metrics DataFrame to CSV for easy importing to other tools
     metrics_csv = os.path.join(Resu_path, "run_metrics.csv")
     metrics_df.to_csv(metrics_csv, index=False)
     
-    return aggregated_stats, metrics_df
+    # Also save as pickle for preserving data types and easier Python loading
+    metrics_pickle = os.path.join(Resu_path, "run_metrics.pkl")
+    metrics_df.to_pickle(metrics_pickle)
+    
+    return aggregated_stats, metrics_df, comprehensive_data
 
+ 
 def log_aggregated_stats(logger, aggregated_stats):
     """
     Log the aggregated statistics from multiple runs.
@@ -1322,177 +1446,6 @@ def calculate_alternative_fitness(genome, params):
         
     # Default fallback
     return 0.5
-
-def analyze_fitness_model_impact(all_runs_data, Resu_path):
-    """
-    Analyze the impact of different fitness calculation methods on parent-offspring fitness relationships.
-    
-    Parameters:
-    -----------
-    all_runs_data : list
-        List of dictionaries containing data from multiple runs
-    Resu_path : str
-        Directory path where to save analysis results
-    """
-    # Extract fitness method from the first run (all runs should use the same method)
-    fitness_method = all_runs_data[0].get("fitness_method", "sherrington_kirkpatrick")
-    
-    # Create a report file with detailed analysis
-    report_path = os.path.join(Resu_path, "fitness_model_impact_analysis.txt")
-    
-    with open(report_path, 'w') as f:
-        f.write(f"=== IMPACT ANALYSIS OF FITNESS METHOD: {fitness_method} ===\n\n")
-        
-        # 1. Analyze slope trends across runs
-        f.write("1. SLOPE TREND ANALYSIS\n")
-        f.write("------------------------\n")
-        
-        # Count how many runs have positive/negative parent-fitness slopes for each model
-        dominance_models = ["dominant", "recessive", "codominant"]
-        models_summary = {}
-        
-        for model in dominance_models:
-            positive_parent_slopes = 0
-            negative_parent_slopes = 0
-            positive_distance_slopes = 0
-            negative_distance_slopes = 0
-            total_parent_slope = 0
-            total_distance_slope = 0
-            
-            for run_data in all_runs_data:
-                summary = run_data.get("summary_stats", {})
-                diploid_stats = summary.get("diploid_stats", {}).get(model, {})
-                
-                if diploid_stats:
-                    # Parent fitness slope
-                    parent_slope = diploid_stats.get("fitness_regression_stats", {}).get("linear_slope", 0)
-                    if parent_slope > 0:
-                        positive_parent_slopes += 1
-                    else:
-                        negative_parent_slopes += 1
-                    total_parent_slope += parent_slope
-                    
-                    # Distance-fitness slope
-                    distance_slope = diploid_stats.get("distance_regression_stats", {}).get("linear_slope", 0)
-                    if distance_slope > 0:
-                        positive_distance_slopes += 1
-                    else:
-                        negative_distance_slopes += 1
-                    total_distance_slope += distance_slope
-            
-            # Calculate averages for non-zero cases
-            total_runs = len(all_runs_data)
-            avg_parent_slope = total_parent_slope / total_runs if total_runs > 0 else 0
-            avg_distance_slope = total_distance_slope / total_runs if total_runs > 0 else 0
-            
-            models_summary[model] = {
-                "positive_parent_slopes": positive_parent_slopes,
-                "negative_parent_slopes": negative_parent_slopes,
-                "positive_distance_slopes": positive_distance_slopes,
-                "negative_distance_slopes": negative_distance_slopes,
-                "avg_parent_slope": avg_parent_slope,
-                "avg_distance_slope": avg_distance_slope
-            }
-            
-            # Write to report
-            f.write(f"\n{model.upper()} MODEL:\n")
-            f.write(f"  Parent-Offspring Fitness Relationship:\n")
-            f.write(f"    Positive slopes: {positive_parent_slopes}/{total_runs} ({positive_parent_slopes/total_runs*100:.1f}%)\n")
-            f.write(f"    Negative slopes: {negative_parent_slopes}/{total_runs} ({negative_parent_slopes/total_runs*100:.1f}%)\n")
-            f.write(f"    Average slope: {avg_parent_slope:.4f}\n")
-            
-            f.write(f"  Genomic Distance-Fitness Relationship:\n")
-            f.write(f"    Positive slopes: {positive_distance_slopes}/{total_runs} ({positive_distance_slopes/total_runs*100:.1f}%)\n")
-            f.write(f"    Negative slopes: {negative_distance_slopes}/{total_runs} ({negative_distance_slopes/total_runs*100:.1f}%)\n")
-            f.write(f"    Average slope: {avg_distance_slope:.4f}\n")
-            
-        # 2. Compare fitness gains across models
-        f.write("\n\n2. OFFSPRING FITNESS COMPARISON\n")
-        f.write("------------------------------\n")
-        
-        model_fitness_gains = {}
-        
-        for model in dominance_models:
-            total_fitness_gain = 0
-            num_valid_runs = 0
-            
-            for run_data in all_runs_data:
-                summary = run_data.get("summary_stats", {})
-                diploid_stats = summary.get("diploid_stats", {}).get(model, {})
-                
-                if diploid_stats and "fitness_improvement" in diploid_stats:
-                    total_fitness_gain += diploid_stats["fitness_improvement"]
-                    num_valid_runs += 1
-            
-            avg_fitness_gain = total_fitness_gain / num_valid_runs if num_valid_runs > 0 else 0
-            model_fitness_gains[model] = avg_fitness_gain
-            
-            f.write(f"\n{model.upper()} MODEL:\n")
-            f.write(f"  Average fitness improvement: {avg_fitness_gain:.4f}\n")
-        
-        # 3. Analyze impact on the expected dominant model negative correlation
-        f.write("\n\n3. IMPACT ON DOMINANCE MODEL EXPECTATIONS\n")
-        f.write("---------------------------------------\n")
-        f.write("\nExpectation: In the dominant model, we expect to see a negative correlation\n")
-        f.write("between parent genomic distance and offspring fitness.\n\n")
-        
-        dominant_data = models_summary.get("dominant", {})
-        total = dominant_data.get("positive_distance_slopes", 0) + dominant_data.get("negative_distance_slopes", 0)
-        
-        if total > 0:
-            negative_percentage = dominant_data.get("negative_distance_slopes", 0) / total * 100
-            f.write(f"With {fitness_method} fitness method:\n")
-            f.write(f"  Negative correlation in dominant model: {negative_percentage:.1f}% of runs\n")
-            f.write(f"  Average slope in dominant model: {dominant_data.get('avg_distance_slope', 0):.4f}\n\n")
-            
-            if negative_percentage > 60:
-                f.write("CONCLUSION: The fitness method SUPPORTS the expected negative correlation.\n")
-            elif negative_percentage < 40:
-                f.write("CONCLUSION: The fitness method CONTRADICTS the expected negative correlation.\n")
-            else:
-                f.write("CONCLUSION: The fitness method shows MIXED RESULTS regarding the expected pattern.\n")
-        
-        # 4. Summary and recommendations
-        f.write("\n\n4. SUMMARY AND RECOMMENDATIONS\n")
-        f.write("-----------------------------\n")
-        
-        # Determine which model shows the most consistent pattern
-        most_consistent_model = ""
-        highest_consistency = 0
-        
-        for model in dominance_models:
-            model_data = models_summary.get(model, {})
-            pos = model_data.get("positive_distance_slopes", 0)
-            neg = model_data.get("negative_distance_slopes", 0)
-            
-            if pos + neg > 0:
-                consistency = max(pos, neg) / (pos + neg)
-                if consistency > highest_consistency:
-                    highest_consistency = consistency
-                    most_consistent_model = model
-        
-        f.write(f"\nFitness Method: {fitness_method}\n")
-        f.write(f"Most consistent model: {most_consistent_model} (consistency: {highest_consistency*100:.1f}%)\n\n")
-        
-        # General advice based on fitness method
-        if fitness_method == "sherrington_kirkpatrick":
-            f.write("The Sherrington-Kirkpatrick model creates a complex fitness landscape with\n")
-            f.write("many interactions between genome positions. To get more consistent results, try:\n")
-            f.write("  - Increasing the genome size\n")
-            f.write("  - Running more generations\n")
-            f.write("  - Adjusting beta and rho parameters\n")
-            f.write("  - Increasing the number of runs\n")
-        elif fitness_method == "single_position":
-            f.write("The single position model is very simple and might not capture the complexity\n")
-            f.write("of realistic fitness landscapes. This simplicity may lead to either very consistent\n")
-            f.write("or very inconsistent results depending on the dominance model implementation.\n")
-        elif fitness_method == "additive":
-            f.write("The additive model lacks epistatic interactions, which might be important for\n")
-            f.write("realistic fitness landscapes. The observed patterns might differ from expectations\n")
-            f.write("based on complex epistatic models.\n")
-    
-    # Return the path to the report
-    return report_path
 
 def init_alternative_fitness(genome_size, method=AlternativeFitnessMethod.SINGLE_POSITION, random_state=None):
     """
@@ -1649,7 +1602,7 @@ def plot_parent_offspring_fitness(diploid_dict, Resu_path, mating_strategy):
     colors = {"dominant": "blue", "recessive": "green", "codominant": "purple"}
 
     # Create figure with subplots
-    fig, axs = plt.subplots(1, 3, figsize=(18, 6), sharex=True, sharey=True)
+    fig, axs = plt.subplots(1, 3, figsize=(18, 9), sharex=True, sharey=True)
 
     for idx, model in enumerate(tqdm(models, desc=f"Processing Models for {mating_strategy} Strategy")):
         diploids = diploid_dict.get(model, [])
@@ -1697,7 +1650,7 @@ def plot_parent_offspring_fitness(diploid_dict, Resu_path, mating_strategy):
                 mean_offspring = np.mean(offspring_fitness)
                 axs[idx].axhline(mean_offspring, color='red', linestyle='-', label=f'Mean Offspring: {mean_offspring:.4f}')
                 
-            axs[idx].legend(loc='lower right')
+            axs[idx].legend(loc='lower right', fontsize=10 , bbox_to_anchor=(1.05, 1.3))
             continue
             
         # Regular case - we have variation in both x and y
@@ -1768,7 +1721,7 @@ def plot_parent_offspring_fitness(diploid_dict, Resu_path, mating_strategy):
             improvement = ((mean_offspring - mean_parent) / abs(mean_parent)) * 100 if mean_parent != 0 else 0
             stats_text.append(f"Improvement: {improvement:.2f}%")
             
-            axs[idx].text(0.05, 0.95, "\n".join(stats_text), 
+            axs[idx].text(0.05, 1.5, "\n".join(stats_text), 
                         transform=axs[idx].transAxes, 
                         fontsize=9, va='top', ha='left',
                         bbox=dict(boxstyle='round', facecolor='white', alpha=0.8))
@@ -1800,7 +1753,7 @@ def plot_parent_offspring_fitness(diploid_dict, Resu_path, mating_strategy):
         # Always add a legend
         handles, labels = axs[idx].get_legend_handles_labels()
         if handles:
-            axs[idx].legend(loc='lower right')
+            axs[idx].legend(loc='lower right', fontsize=10 , bbox_to_anchor=(1.05, 1.3))
 
     # Global title
     plt.suptitle("Parent vs Offspring Fitness Comparison", fontsize=16)
@@ -1828,7 +1781,7 @@ def plot_parent_offspring_heatmap(diploid_offspring_dict, Resu_path):
     """
 
     models = ["dominant", "recessive", "codominant"]
-    fig, axs = plt.subplots(1, 3, figsize=(18, 6), sharex=True, sharey=True)
+    fig, axs = plt.subplots(1, 3, figsize=(18, 9), sharex=True, sharey=True)
 
     for idx, model in enumerate(tqdm(models, desc="Processing Models")):
         offspring_list = diploid_offspring_dict.get(model, [])
@@ -1886,8 +1839,8 @@ def plot_offspring_vs_min_max_parent_fitness(diploid_dict, Resu_path, mating_str
     colors = {"dominant": "blue", "recessive": "green", "codominant": "purple"}
     
     # Create two separate figures for max and min parent fitness
-    fig1, axs1 = plt.subplots(1, 3, figsize=(18, 6), sharex=True, sharey=True)
-    fig2, axs2 = plt.subplots(1, 3, figsize=(18, 6), sharex=True, sharey=True)
+    fig1, axs1 = plt.subplots(1, 3, figsize=(18, 9), sharex=True, sharey=True)
+    fig2, axs2 = plt.subplots(1, 3, figsize=(18, 9), sharex=True, sharey=True)
 
     for idx, model in enumerate(tqdm(models, desc=f"Creating min-max plots for {mating_strategy}")):
         diploids = diploid_dict.get(model, [])
@@ -2008,7 +1961,7 @@ def plot_offspring_vs_min_max_parent_fitness(diploid_dict, Resu_path, mating_str
                         f"Mean Offspring: {np.mean(offspring_fitness):.3f}"
                     ]
                     
-                    axs1[idx].text(0.05, 0.95, "\n".join(stats_text), 
+                    axs1[idx].text(0.05, 1.5, "\n".join(stats_text), 
                                   transform=axs1[idx].transAxes, 
                                   fontsize=9, va='top', ha='left',
                                   bbox=dict(boxstyle='round', facecolor='white', alpha=0.8))
@@ -2127,7 +2080,7 @@ def plot_offspring_vs_min_max_parent_fitness(diploid_dict, Resu_path, mating_str
                         f"Mean Offspring: {np.mean(offspring_fitness):.3f}"
                     ]
                     
-                    axs2[idx].text(0.05, 0.95, "\n".join(stats_text), 
+                    axs2[idx].text(0.05, 1.5, "\n".join(stats_text), 
                                   transform=axs2[idx].transAxes, 
                                   fontsize=9, va='top', ha='left',
                                   bbox=dict(boxstyle='round', facecolor='white', alpha=0.8))
@@ -2202,7 +2155,7 @@ def plot_parent_genomic_distance_vs_offspring_fitness(diploid_dict, Resu_path, m
         The mating strategy used (for plot title)
     """
     models = ["dominant", "recessive", "codominant"]
-    fig, axs = plt.subplots(1, 3, figsize=(18, 6), sharex=True, sharey=True)
+    fig, axs = plt.subplots(1, 3, figsize=(18, 10), sharex=True, sharey=True)
     
     for idx, model in enumerate(tqdm(models, desc=f"Creating genomic distance plots for {mating_strategy}")):
         diploids = diploid_dict.get(model, [])
@@ -2320,7 +2273,7 @@ def plot_parent_genomic_distance_vs_offspring_fitness(diploid_dict, Resu_path, m
                         f"Mean Fitness: {np.mean(offspring_fitness):.3f}"
                     ]
                     
-                    axs[idx].text(0.05, 0.95, "\n".join(stats_text), 
+                    axs[idx].text(0.1, 1.5, "\n".join(stats_text), 
                                 transform=axs[idx].transAxes, 
                                 fontsize=9, va='top', ha='left',
                                 bbox=dict(boxstyle='round', facecolor='white', alpha=0.8))
@@ -2336,14 +2289,14 @@ def plot_parent_genomic_distance_vs_offspring_fitness(diploid_dict, Resu_path, m
             # Always add legend if we have any labeled elements
             handles, labels = axs[idx].get_legend_handles_labels()
             if handles:
-                axs[idx].legend(loc='lower right')
+                axs[idx].legend(loc='upper right', fontsize=8, bbox_to_anchor=(1.05, 1.3))
                 
         except Exception as e:
             # Handle any general processing errors
             print(f"Error processing {model} model: {e}")
             axs[idx].text(0.5, 0.5, f"Error processing data:\n{str(e)}", 
                         ha='center', va='center', transform=axs[idx].transAxes,
-                        bbox=dict(boxstyle="round,pad=0.3", fc="lightyellow", ec="red", alpha=0.8))
+                        bbox=dict(boxstyle="round,pad=0.3", fc="lightyellow", ec="red", alpha=0.4))
     
     # Global title
     plt.suptitle(f"Parent Genomic Distance vs Offspring Fitness\n({mating_strategy} Strategy)", fontsize=16)
@@ -2369,7 +2322,7 @@ def plot_offspring_fitness_vs_offspring_prs(diploid_dict, Resu_path, mating_stra
         The mating strategy used (for plot title)
     """
     models = ["dominant", "recessive", "codominant"]
-    fig, axs = plt.subplots(1, 3, figsize=(18, 6), sharex=False, sharey=False)
+    fig, axs = plt.subplots(1, 3, figsize=(18, 9), sharex=False, sharey=False)
     
     for idx, model in enumerate(tqdm(models, desc=f"Creating Offspring PRS plots for {mating_strategy}")):
         diploids = diploid_dict.get(model, [])
@@ -2535,7 +2488,7 @@ def plot_offspring_fitness_vs_offspring_prs(diploid_dict, Resu_path, mating_stra
                         f"Mean Fitness: {np.mean(offspring_fitness):.3f}"
                     ])
                     
-                    axs[idx].text(0.05, 0.95, "\n".join(stats_text), 
+                    axs[idx].text(0.05, 1.5, "\n".join(stats_text), 
                                 transform=axs[idx].transAxes, 
                                 fontsize=9, va='top', ha='left',
                                 bbox=dict(boxstyle='round', facecolor='white', alpha=0.8))
@@ -2551,7 +2504,7 @@ def plot_offspring_fitness_vs_offspring_prs(diploid_dict, Resu_path, mating_stra
             # Always add legend if we have any labeled elements
             handles, labels = axs[idx].get_legend_handles_labels()
             if handles:
-                axs[idx].legend(loc='lower right')
+                axs[idx].legend(loc='lower right', fontsize=10 , bbox_to_anchor=(1.05, 1.3))
                 
         except Exception as e:
             # Handle any general errors
@@ -2921,7 +2874,7 @@ def main():
     aparser.add_argument("--rho", type=float, default=0.25, help="Rho parameter")
     aparser.add_argument("--mating_strategy", type=str, default="one_to_one", choices=["one_to_one", "all_vs_all", "mating_types"], help="Strategy for organism mating")
     aparser.add_argument("--output_dir", type=str, default="Resu", help="Output directory for results")
-    aparser.add_argument("--random_seed_env", type=int, default=None, help="Fixed random seed for reproducibility.")
+    aparser.add_argument("--random_seed_env", type=int, default=None, help=("Seed for the environment-level RNG. If you pass a value, every run will build exactly the same Environment (h, J for Sherrington-Kirkpatrick **or** the chosen locus for single-position fitness, etc.). Leave it unset for a fresh, random environment each run."))
     aparser.add_argument("--log_genomes", action='store_true',help="If set, log every organism's genome each generation.")
     aparser.add_argument("--log_level", type=str, default="INFO", help="Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)")
     aparser.add_argument("--initial_fitness", type=float, default=None, help="Target fitness for the initial organism. If set, the simulation will search for a genome with this approximate fitness.")
@@ -3105,6 +3058,8 @@ def main():
             "random_seed_env": run_seed,
             "summary_stats": summary_stats,
             "generation_stats": generation_stats,
+            # Add the diploid offspring dictionary for complete raw data
+            "diploid_offspring_dict": diploid_offspring_dict 
         }
         all_runs_data.append(run_data)
         
@@ -3120,7 +3075,12 @@ def main():
     main_log.info("\n==== Aggregating Results from All Runs ====")
     
     # Use the numpy_json_encoder function when dumping JSON to handle NumPy types
-    aggregated_stats, metrics_df = aggregate_simulation_results(all_runs_data, main_path)
+    aggregated_stats, metrics_df , all_runs_data = aggregate_simulation_results(all_runs_data, main_path)
+    main_log.info(f"Aggregated results saved to: {os.path.join(main_path, 'aggregated_results.json')}")
+    main_log.info(f"Metrics DataFrame saved to: {os.path.join(main_path, 'metrics_df.csv')}")
+    main_log.info(f"All runs data saved to: {os.path.join(main_path, 'all_runs_data.json')}")
+    main_log.info(f"Aggregated statistics: {aggregated_stats}")
+    main_log.info(f"Metrics DataFrame: {metrics_df.head()}")
     log_aggregated_stats(main_log, aggregated_stats)
     
     # Create slope analysis plots
@@ -3137,27 +3097,6 @@ def main():
     main_log.info(f"The results are saved in: {main_path}")
     main_log.info("=== END OF MULTI-RUN SIMULATION ===")
 
-
-    # If multiple runs were performed, analyze the impact of the fitness method
-    if args.num_runs > 1:
-        main_log.info("\n==== Analyzing Impact of Fitness Method ====")
-        # Store fitness method in run data
-        for run_data in all_runs_data:
-            run_data["fitness_method"] = args.fitness_method
-            
-        # Run the specialized analysis
-        fitness_analysis_report = analyze_fitness_model_impact(all_runs_data, main_path)
-        main_log.info(f"Fitness method impact analysis saved to: {fitness_analysis_report}")
-
-    # Log overall completion
-    total_time = time.time() - main_start_time
-    main_log.info(f"\nAll {args.num_runs} simulation runs completed.")
-    main_log.info(f"Total time: {time.strftime('%H:%M:%S', time.gmtime(total_time))}")
-    main_log.info(f"Average time per run: {time.strftime('%H:%M:%S', time.gmtime(total_time/args.num_runs))}")
-    main_log.info(f"Memory usage: {psutil.virtual_memory().percent:.2f}%")
-    main_log.info(f"End time: {time.strftime('%Y-%m-%d %H:%M:%S')}")
-    main_log.info(f"The results are saved in: {main_path}")
-    main_log.info("=== END OF MULTI-RUN SIMULATION ===")
     
 #######################################################################
 # Entry point
