@@ -112,45 +112,39 @@ class DiploidOrganism:
     def _get_effective_genome(self):
         """
         Calculate effective genome based on inheritance model.
-        
-        For codominant model:
-        - If alleles are the same (1,1) or (-1,-1): use that value
-        - If alleles are different (1,-1) or (-1,1): use 0.5 * (allele1 + allele2)
-        - If environment prefers 1 and alleles are (1,1): returns 1
+
+        Converts alleles from -1/1 to 0/1:
+        - -1 (recessive, a) -> 0
+        -  1 (dominant, A)  -> 1
+
+        Inheritance models:
+        - Dominant: AA, Aa, aA -> 1 ; aa -> 0
+        - Recessive: aa -> 1 ; others -> 0
+        - Co-Dominant:
+            AA -> 1
+            Aa, aA -> 0.5
+            aa -> 0
         """
-         # Special handling for genome size 1
-        if len(self.allele1) == 1:
-            if self.fitness_model == "dominant":
-                return np.array([-1]) if -1 in [self.allele1[0], self.allele2[0]] else np.array([1])
-            elif self.fitness_model == "recessive":
-                return np.array([-1]) if self.allele1[0] == -1 and self.allele2[0] == -1 else np.array([1])
-            elif self.fitness_model == "codominant":
-                if self.allele1[0] == self.allele2[0]:
-                    return self.allele1.copy()
-                else:
-                    return np.array([0])  # Average of -1 and 1
-    
-        
+
+        # Convert alleles from -1/1 to 0/1
+        allele1 = (self.allele1 + 1) // 2
+        allele2 = (self.allele2 + 1) // 2
+
         if self.fitness_model == "dominant":
-            return np.where((self.allele1 == -1) | (self.allele2 == -1), -1, 1)
+            return np.where((allele1 == 1) | (allele2 == 1), 1.0, 0.0)
+        
         elif self.fitness_model == "recessive":
-            return np.where((self.allele1 == -1) & (self.allele2 == -1), -1, 1)
+            return np.where((allele1 == 0) & (allele2 == 0), 1.0, 0.0)
+        
         elif self.fitness_model == "codominant":
-            # Create a mask for mixed alleles (1,-1 or -1,1)
-            mixed_alleles = self.allele1 != self.allele2
-            
-            # For mixed alleles, calculate the average (will give 0.5 * (1 + -1) = 0)
-            # For same alleles, use either allele (they're the same)
-            effective = np.where(
-                mixed_alleles,
-                0.5 * (self.allele1 + self.allele2),  # Mixed case: average of alleles
-                self.allele1  # Same alleles case: use either allele
-            )            
-            # Special case: if environment prefers 1 and both alleles are 1
-            both_positive = (self.allele1 == 1) & (self.allele2 == 1)
-            effective = np.where(both_positive, 1, effective)
-            
+            both_1 = (allele1 == 1) & (allele2 == 1)
+            both_0 = (allele1 == 0) & (allele2 == 0)
+            mixed = (allele1 != allele2)
+
+            effective = np.where(both_1, 1.0, 0.0)
+            effective = np.where(mixed, 0.5, effective)
             return effective
+
         else:
             raise ValueError(f"Unknown fitness model: {self.fitness_model}")
 
@@ -418,8 +412,8 @@ def calculate_genomic_distance(genome1, genome2):
     # Calculate Hamming distance (number of positions where genomes differ)
     differences = np.sum(genome1 != genome2)
     
-    # Normalize by genome length
-    return differences / len(genome1)
+    # return abs differences
+    return differences 
 
 def calculate_prs(genome):
     """
@@ -1327,7 +1321,6 @@ def aggregate_simulation_results(all_runs_data, Resu_path):
     
     return aggregated_stats, metrics_df, comprehensive_data
 
- 
 def log_aggregated_stats(logger, aggregated_stats):
     """
     Log the aggregated statistics from multiple runs.
@@ -1406,44 +1399,46 @@ def numpy_json_encoder(obj):
 def calculate_alternative_fitness(genome, params):
     """
     Calculate fitness using an alternative method.
-    
+
     Parameters:
     -----------
     genome : numpy.ndarray
         The genome to calculate fitness for
     params : dict
         Parameters for fitness calculation, as returned by init_alternative_fitness
-        
+
     Returns:
     --------
     float
         The calculated fitness value
     """
     method = params.get("method", AlternativeFitnessMethod.SINGLE_POSITION)
-    
+
     if method == AlternativeFitnessMethod.SINGLE_POSITION:
         position = params["position"]
         favorable_value = params["favorable_value"]
+
+        # Make sure the genome is not just haploid but supports recessive models
+        # Assume this is effective diploid genome: 1.0 if AA (dominant), or if aa (recessive)
+
+        # Ensure position exists
+        if position >= len(genome):
+            return 0.0
+
+        # Return high fitness if the effective genome has 1.0 at the position (which recessive model defines only for aa)
+        return 1.0 if genome[position] == favorable_value else 0.0
         
-        # Check if the genome has the favorable value at the selected position
-        if genome[position] == favorable_value:
-            return 1.0  # High fitness
-        else:
-            return 0.1  # Low fitness
-            
     elif method == AlternativeFitnessMethod.ADDITIVE:
         weights = params["weights"]
-        
-        # Simple dot product of genome and weights
-        # Convert -1/1 genome to 0/1 format for easier interpretation
+
+        # Convert -1/1 to 0/1 encoding
         genome_01 = (genome + 1) / 2
         fitness = np.dot(genome_01, weights)
-        
-        # Normalize to a reasonable range (0.1 to 1.0)
+
+        # Normalize to a bounded range using sigmoid-like transformation
         normalized_fitness = 0.1 + 0.9 / (1 + np.exp(-fitness))
-        
         return normalized_fitness
-        
+
     # Default fallback
     return 0.5
 
@@ -3079,8 +3074,8 @@ def main():
     main_log.info(f"Aggregated results saved to: {os.path.join(main_path, 'aggregated_results.json')}")
     main_log.info(f"Metrics DataFrame saved to: {os.path.join(main_path, 'metrics_df.csv')}")
     main_log.info(f"All runs data saved to: {os.path.join(main_path, 'all_runs_data.json')}")
-    main_log.info(f"Aggregated statistics: {aggregated_stats}")
-    main_log.info(f"Metrics DataFrame: {metrics_df.head()}")
+    # main_log.info(f"Aggregated statistics: {aggregated_stats}")
+    # main_log.info(f"Metrics DataFrame: {metrics_df.head()}")
     log_aggregated_stats(main_log, aggregated_stats)
     
     # Create slope analysis plots
