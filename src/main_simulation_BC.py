@@ -1,11 +1,11 @@
 #!/home/labs/pilpel/barc/.conda/envs/sexy_yeast_env/bin/python
+from __future__ import annotations
 import numpy as np
 import uuid
 import matplotlib.pyplot as plt
 import networkx as nx
 import argparse as ap
 from collections import defaultdict
-import logging as log
 import os
 import plotly.express as px
 import pandas as pd
@@ -25,6 +25,9 @@ import scipy
 from scipy import stats
 import json
 from datetime import datetime
+import logging as _logging
+import logging as log
+from pathlib import Path
 
 
 
@@ -51,21 +54,37 @@ def _get_lsf_job_details() -> list[str]:
     ]
     return details
 
-def init_log(Resu_path, log_level="INFO"):
-    """Initialize logging with specified log level"""
-    # Set log level
-    level = getattr(log, log_level.upper(), log.INFO)
-    
-    # Initialize logging
-    log.basicConfig(level=level, format='%(asctime)s - %(name)s - %(levelname)s - %(lineno)d - %(message)s')
-    
-    # Add file handler
-    path = os.path.join(Resu_path, 'sexy_yeast.log')
-    fh = log.FileHandler(path, mode='w')
-    fh.setLevel(level)
-    log.getLogger().addHandler(fh)
+def init_log(name: str = "sexy_yeast",
+               level: str | int = "INFO",
+               directory: str | Path | None = None) -> _logging.Logger:
+    """Return a configured logger.
 
-    return log
+    If *directory* is passed a file handler is added, otherwise we log to
+    stderr only.  The function never attaches duplicate handlers, which makes
+    it safe to call from multiple modules.
+    """
+    _LOG_FORMAT = "%(asctime)s | %(name)s | %(levelname)s | L%(lineno)d | %(message)s"
+    logger = _logging.getLogger(name)
+    if isinstance(level, str):
+        level = getattr(_logging, level.upper(), _logging.INFO)
+    logger.setLevel(level)
+
+    if not logger.handlers:                                   # ① idempotent
+        formatter = _logging.Formatter(_LOG_FORMAT)
+
+        # Console
+        sh = _logging.StreamHandler()
+        sh.setFormatter(formatter)
+        logger.addHandler(sh)
+
+        # Optional file
+        if directory:
+            directory = Path(directory).expanduser().resolve()
+            directory.mkdir(parents=True, exist_ok=True)
+            fh = _logging.FileHandler(directory / f"{name}.log", mode="w")
+            fh.setFormatter(formatter)
+            logger.addHandler(fh)
+    return logger
 
 #######################################################################
 # Classes
@@ -88,6 +107,7 @@ class AlternativeFitnessMethod(Enum):
 
 class DiploidOrganism:
     def __init__(self, parent1, parent2, fitness_model="dominant", mating_type=None):
+        
         if len(parent1.genome) != len(parent2.genome):
             raise ValueError("Parent genomes must have the same length.")
         
@@ -111,47 +131,57 @@ class DiploidOrganism:
 
     def _get_effective_genome(self):
         """
-        Calculate effective genome based on inheritance model.
+        Computes a genome-length vector of fitness values based on genotype and fitness model.
 
-        Converts alleles from -1/1 to 0/1:
-        - -1 (recessive, a) -> 0
-        -  1 (dominant, A)  -> 1
-
-        Inheritance models:
-        - Dominant: AA, Aa, aA -> 1 ; aa -> 0
-        - Recessive: aa -> 1 ; others -> 0
-        - Co-Dominant:
-            AA -> 1
-            Aa, aA -> 0.5
-            aa -> 0
+        Fitness model interpretations:
+            - 'dominant'   : AA, Aa, aA → 1.0; aa → 0.0
+            - 'recessive'  : only AA → 1.0; others → 0.0
+            - 'codominant' : AA → 1.0, Aa/aA → 0.5, aa → 0.0
         """
-
-        # Convert alleles from -1/1 to 0/1
+        # Normalize allele representation: -1 (a) → 0, 1 (A) → 1
         allele1 = (self.allele1 + 1) // 2
         allele2 = (self.allele2 + 1) // 2
 
-        if self.fitness_model == "dominant":
-            return np.where((allele1 == 1) | (allele2 == 1), 1.0, 0.0)
-        
-        elif self.fitness_model == "recessive":
-            return np.where((allele1 == 0) & (allele2 == 0), 1.0, 0.0)
-        
-        elif self.fitness_model == "codominant":
-            both_1 = (allele1 == 1) & (allele2 == 1)
-            both_0 = (allele1 == 0) & (allele2 == 0)
-            mixed = (allele1 != allele2)
+        # Start with zero fitness across the genome
+        fitness = np.zeros_like(allele1, dtype=float)
 
-            effective = np.where(both_1, 1.0, 0.0)
-            effective = np.where(mixed, 0.5, effective)
-            return effective
+        if self.fitness_model == "dominant":
+            fitness[(allele1 == 1) | (allele2 == 1)] = 1.0
+
+        elif self.fitness_model == "recessive":
+            fitness[(allele1 == 1) & (allele2 == 1)] = 1.0
+
+        elif self.fitness_model == "codominant":
+            homozygous_dominant = (allele1 == 1) & (allele2 == 1)
+            heterozygous = allele1 != allele2
+
+            fitness[homozygous_dominant] = 1.0
+            fitness[heterozygous] = 0.5
 
         else:
             raise ValueError(f"Unknown fitness model: {self.fitness_model}")
 
+        return fitness
+
     def calculate_fitness(self):
         """Calculate fitness using the effective genome and the environment's calculation method."""
         effective_genome = self._get_effective_genome()
-        return self.environment.calculate_fitness(effective_genome)
+        
+        # Log relevant data for debugging
+        if self.logger:
+            self.logger.debug(f"[Offspring {self.id}] Fitness Model: {self.fitness_model}")
+            self.logger.debug(f"\n[Offspring {self.id}] Fitness Model: {self.fitness_model}")
+            self.logger.debug(f"Parent1 Fitness: {self.parent1_fitness}")
+            self.logger.debug(f"Parent2 Fitness: {self.parent2_fitness}")
+            self.logger.debug(f"Avg Parent Fitness: {self.avg_parent_fitness}")
+            self.logger.debug(f"Allele1: {self.allele1}")
+            self.logger.debug(f"Allele2: {self.allele2}")
+            self.logger.debug(f"Effective Genome: {effective_genome}")
+        
+        fitness = self.environment.calculate_fitness(effective_genome)
+        self.logger.debug(f"Calculated Offspring Fitness: {fitness}\n")
+        
+        return fitness
 
 class OrganismWithMatingType:
     def __init__(self, organism, mating_type):
@@ -1296,27 +1326,30 @@ def aggregate_simulation_results(all_runs_data, Resu_path):
     except Exception as e:
         print(f"Could not calculate correlation matrix: {e}")
     
-    # Save the raw metrics data as JSON
-    metrics_file = os.path.join(Resu_path, "run_metrics.json")
+    # Save the raw metrics data as JSON in the subdirectory
+    path_to_subdirectory = os.path.join(Resu_path, "raw_metrics")
+    os.makedirs(path_to_subdirectory, exist_ok=True)
+
+    metrics_file = os.path.join(path_to_subdirectory, "run_metrics.json")
     with open(metrics_file, 'w') as f:
         json.dump(run_metrics, f, indent=2, default=numpy_json_encoder)
 
     # Save aggregated statistical summary
-    aggregated_file = os.path.join(Resu_path, "aggregated_stats.json")
+    aggregated_file = os.path.join(path_to_subdirectory, "aggregated_stats.json")
     with open(aggregated_file, 'w') as f:
         json.dump(aggregated_stats, f, indent=2, default=numpy_json_encoder)
     
     # Save comprehensive data structure with all raw data
-    comprehensive_file = os.path.join(Resu_path, "comprehensive_data.json")
+    comprehensive_file = os.path.join(path_to_subdirectory, "comprehensive_data.json")
     with open(comprehensive_file, 'w') as f:
         json.dump(comprehensive_data, f, indent=2, default=numpy_json_encoder)
     
     # Save metrics DataFrame to CSV for easy importing to other tools
-    metrics_csv = os.path.join(Resu_path, "run_metrics.csv")
+    metrics_csv = os.path.join(path_to_subdirectory, "run_metrics.csv")
     metrics_df.to_csv(metrics_csv, index=False)
     
     # Also save as pickle for preserving data types and easier Python loading
-    metrics_pickle = os.path.join(Resu_path, "run_metrics.pkl")
+    metrics_pickle = os.path.join(path_to_subdirectory, "run_metrics.pkl")
     metrics_df.to_pickle(metrics_pickle)
     
     return aggregated_stats, metrics_df, comprehensive_data
@@ -2057,7 +2090,7 @@ def plot_offspring_fitness_vs_offspring_prs(diploid_dict, Resu_path, mating_stra
 #######################################################################
 # Simulation functions
 #######################################################################
-def run_simulation_with_initial_fitness(num_generations, environment, initial_fitness=None, max_population_size=100000, log_genomes=True, initial_genome_seed=None, mutation_seed=None):
+def run_simulation_with_initial_fitness(num_generations, environment, initial_fitness=None, max_population_size=100000, log_genomes=True, initial_genome_seed=None, mutation_seed=None , logger=None):
     """
     Run simulation with an option to specify the initial organism's fitness.
     
@@ -2083,6 +2116,7 @@ def run_simulation_with_initial_fitness(num_generations, environment, initial_fi
     tuple
         (all_organisms, individual_fitness, generation_stats)
     """
+    log = logger or logging.getLogger("sexy_yeast.Sim")     # unified name
     if initial_fitness is not None:
         # Try to find a genome with the specified fitness
         log.info(f"Searching for an initial genome with fitness close to {initial_fitness}")
@@ -2220,12 +2254,12 @@ def main():
     aparser.add_argument("--genome_size", type=int, default=100, help="Size of the genome")
     aparser.add_argument("--beta", type=float, default=0.5, help="Beta parameter")
     aparser.add_argument("--rho", type=float, default=0.25, help="Rho parameter")
-    aparser.add_argument("--mating_strategy", type=str, default="one_to_one", choices=["one_to_one", "all_vs_all", "mating_types"], help="Strategy for organism mating")
-    aparser.add_argument("--output_dir", type=str, default="Resu", help="Output directory for results")
+    aparser.add_argument("--mating_strategy", type=str, default="all_vs_all", choices=["one_to_one", "all_vs_all", "mating_types"], help="Strategy for organism mating")
+    aparser.add_argument("--output_dir", type=str, default="Results", help="Output directory for results")
     aparser.add_argument("--random_seed_env", type=int, default=None, help=("Seed for the environment-level RNG. If you pass a value, every run will build exactly the same Environment (h, J for Sherrington-Kirkpatrick **or** the chosen locus for single-position fitness, etc.). Leave it unset for a fresh, random environment each run."))
     aparser.add_argument("--log_genomes", action='store_true',help="If set, log every organism's genome each generation.")
     aparser.add_argument("--log_level", type=str, default="INFO", help="Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)")
-    aparser.add_argument("--initial_fitness", type=float, default=None, help="Target fitness for the initial organism. If set, the simulation will search for a genome with this approximate fitness.")
+    aparser.add_argument("--initial_fitness", type=float, default=0, help="Target fitness for the initial organism. If set, the simulation will search for a genome with this approximate fitness.")
     aparser.add_argument("--initial_genome_seed", type=int, default=None, help="Random seed specifically for generating the initial genome")
     aparser.add_argument("--mutation_seed", type=int, default=None, help="Random seed for controlling mutations during reproduction")
     
@@ -2323,7 +2357,7 @@ def main():
         if args.save_individual_runs:
             log = init_log(Resu_path, args.log_level)
         else:
-            log = main_log  # Use main logger if not saving individual runs
+            log = main_log  
             
         run_start_time = time.time()
 
@@ -2362,7 +2396,8 @@ def main():
             max_population_size=100000,
             log_genomes=args.log_genomes,
             initial_genome_seed=args.initial_genome_seed,
-            mutation_seed=mutation_seed
+            mutation_seed=mutation_seed,
+            logger=log
         )
         gc.collect()  # Garbage collection
 
@@ -2430,10 +2465,6 @@ def main():
     # main_log.info(f"Aggregated statistics: {aggregated_stats}")
     # main_log.info(f"Metrics DataFrame: {metrics_df.head()}")
     log_aggregated_stats(main_log, aggregated_stats)
-    
-    # Create slope analysis plots
-    main_log.info("Creating slope analysis plots")
-    plot_slope_sign_analysis(metrics_df, main_path)
     
     # Log overall completion
     total_time = time.time() - main_start_time
