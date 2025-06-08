@@ -29,7 +29,7 @@ from datetime import datetime
 
 
 #######################################################################
-# SetUUp functions
+# SetUp functions
 #######################################################################
 
 def _get_lsf_job_details() -> list[str]:
