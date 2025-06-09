@@ -459,7 +459,8 @@ class SimulationVisualizer:
     
     def plot_parent_offspring_relationships(self, diploid_offspring: Dict[str, List[DiploidOrganism]],
                                           output_path: Path, mating_strategy: str,
-                                          filename: str = "parent_offspring_fitness.png") -> None:
+                                          filename: str = "parent_offspring_fitness.png",
+                                          ylim: Tuple[float, float] = None) -> None:
         """
         Plot parent vs offspring fitness relationships for all models.
         
@@ -468,22 +469,83 @@ class SimulationVisualizer:
             output_path: Directory to save the plot
             mating_strategy: Mating strategy used
             filename: Name of the output file
+            ylim: Optional tuple of (ymin, ymax) to set y-axis limits
         """
         models = ["dominant", "recessive", "codominant"]
         fig, axes = plt.subplots(1, 3, figsize=(18, 6))
+        
+        # Find global min and max offspring fitness across all models
+        all_offspring_fitness = []
+        for model in models:
+            organisms = diploid_offspring.get(model, [])
+            if organisms:
+                all_offspring_fitness.extend([org.fitness for org in organisms])
+        
+        if ylim is None and all_offspring_fitness:
+            min_fitness = min(all_offspring_fitness)
+            max_fitness = max(all_offspring_fitness)
+            padding = 0.3 * (max_fitness - min_fitness)
+            ylim = (min_fitness - padding, max_fitness + padding)
+            self.logger.debug(f"Setting y-axis limits to {ylim} based on data range.")
+            
         
         for idx, model in enumerate(models):
             ax = axes[idx]
             organisms = diploid_offspring.get(model, [])
             
             self._plot_single_model_relationship(ax, organisms, model)
-        
+            ax.set_ylim(ylim)
+
         fig.suptitle(f'Parent vs Offspring Fitness ({mating_strategy} strategy)', 
                     fontsize=16, y=1.03)
         
         plt.tight_layout(rect=[0, 0, 1, 0.95])
         self._save_figure(fig, output_path, f"{filename.split('.')[0]}_{mating_strategy}.png")
     
+    def plot_min_max_parent_offspring_fitness(self, diploid_offspring: Dict[str, List[DiploidOrganism]],
+                                            output_path: Path, mating_strategy: str,
+                                            filename_prefix: str = "parent_offspring_fitness") -> None:
+        """
+        Plot offspring fitness against min and max parental fitness for all models.
+        """
+        metrics = {
+                "min": ("Min Parental Fitness", lambda org: min(org.parent1_fitness, org.parent2_fitness)),
+                "max": ("Max Parental Fitness", lambda org: max(org.parent1_fitness, org.parent2_fitness)),
+            }
+        models = ["dominant", "recessive", "codominant"]
+
+        for key, (title_prefix, fitness_accessor) in metrics.items():
+            fig, axes = plt.subplots(1, 3, figsize=(18, 6))
+
+            # Determine global ylim across all models
+            all_offspring_fitness = []
+            for model in models:
+                organisms = diploid_offspring.get(model, [])
+                all_offspring_fitness.extend([org.fitness for org in organisms])
+            if all_offspring_fitness:
+                min_fitness = min(all_offspring_fitness)
+                max_fitness = max(all_offspring_fitness)
+                padding = 0.3 * (max_fitness - min_fitness)
+                ylim = (min_fitness - padding, max_fitness + padding)
+            else:
+                ylim = None
+
+            for idx, model in enumerate(models):
+                ax = axes[idx]
+                organisms = diploid_offspring.get(model, [])
+
+                # Override average parent fitness dynamically
+                for org in organisms:
+                    org.avg_parent_fitness = fitness_accessor(org)  # overwrite temporarily
+
+                self._plot_single_model_relationship(ax, organisms, model)
+                if ylim:
+                    ax.set_ylim(ylim)
+
+            fig.suptitle(f'{title_prefix} vs Offspring Fitness ({mating_strategy} strategy)', fontsize=16, y=1.03)
+            plt.tight_layout(rect=[0, 0, 1, 0.95])
+            self._save_figure(fig, output_path, f"{filename_prefix}_{key}_{mating_strategy}.png")
+        
     def _plot_single_model_relationship(self, ax, organisms: List[DiploidOrganism], model: str) -> None:
         """Plot parent-offspring relationship for a single dominance model."""
         ax.set_title(f'{model.capitalize()} Model\n({len(organisms)} offspring)', 
@@ -655,7 +717,7 @@ class SimulationVisualizer:
                       s=40, edgecolors='white', linewidth=0.5)
             
             # Add regression if sufficient variation
-            if len(np.unique(distances)) > 3:
+            if len(np.unique(distances)) > 2:
                 self._add_distance_regression(ax, distances, fitness_vals)
                 
         except Exception as e:
@@ -772,7 +834,7 @@ class SimulationVisualizer:
                       label=f'Mean PRS: {np.mean(prs_scores):.3f}')
             
             # Add correlation if there's variation
-            if len(np.unique(prs_scores)) > 3:
+            if len(np.unique(prs_scores)) > 2:
                 self._add_prs_correlation(ax, prs_scores, fitness_vals)
             
             ax.legend(loc='lower right', fontsize=9)

@@ -493,9 +493,25 @@ options:
                         Maximum population size per generation (default: 100000)
 
 
-/home/labs/pilpel/barc/sexy_yeast/src/evolutionary_simulation.py \
+bsub -q gsla-cpu -R rusage[mem=2GB] \
+  /home/labs/pilpel/barc/sexy_yeast/src/evolutionary_simulation.py \
+  --genome_size 2 \
+  --generations 4 \
+  --mating_strategy all_vs_all \
+  --fitness_method single_position \
+  --beta 0 \
+  --rho 0.25 \
+  --num_runs 1 \
+  --output_dir /home/labs/pilpel/barc/sexy_yeast/Results/ \
+  --save_individual_runs \
+  --plot_individual_runs \
+  --random_seed_env 42 \
+  --log_level INFO  
+
+bsub -q gsla-cpu -R rusage[mem=2GB] \
+    /home/labs/pilpel/barc/sexy_yeast/src/evolutionary_simulation.py \
     --genome_size 2 \
-    --generations 4 \
+    --generations 8 \
     --mating_strategy all_vs_all \
     --fitness_method single_position \
     --beta 0 \
@@ -504,5 +520,56 @@ options:
     --output_dir /home/labs/pilpel/barc/sexy_yeast/Results/ \
     --save_individual_runs \
     --plot_individual_runs \
+    --random_seed_env 42 \
+    --log_level INFO  
+
+
+bsub -q gsla-cpu -R rusage[mem=2GB] \
+    /home/labs/pilpel/barc/sexy_yeast/src/evolutionary_simulation.py \
+    --genome_size 4 \
+    --generations 8 \
+    --mating_strategy all_vs_all \
+    --fitness_method sherrington_kirkpatrick \
+    --beta 0 \
+    --rho 0.25 \
+    --num_runs 1 \
+    --output_dir /home/labs/pilpel/barc/sexy_yeast/Results/ \
+    --save_individual_runs \
+    --plot_individual_runs \
+    --random_seed_env 42 \
+    --log_level INFO  
+
+bsub -q gsla-cpu -R rusage[mem=2GB] \
+    /home/labs/pilpel/barc/sexy_yeast/src/evolutionary_simulation.py \
+    --genome_size 2000 \
+    --generations 6 \
+    --mating_strategy all_vs_all \
+    --fitness_method sherrington_kirkpatrick \
+    --beta 0.1 \
+    --rho 0.25 \
+    --num_runs 5 \
+    --output_dir /home/labs/pilpel/barc/sexy_yeast/Results/ \
+    --save_individual_runs \
+    --plot_individual_runs \
     --initial_fitness 0 \
-    --random_seed_env 42
+    --random_seed_env 42 \
+    --log_level INFO  
+
+bsub -q gsla-cpu -R rusage[mem=2GB] \
+    /home/labs/pilpel/barc/sexy_yeast/src/evolutionary_simulation.py \
+    --genome_size 400 \
+    --generations 6 \
+    --mating_strategy all_vs_all \
+    --fitness_method sherrington_kirkpatrick \
+    --beta 0.0 \
+    --rho 0.25 \
+    --num_runs 5 \
+    --output_dir /home/labs/pilpel/barc/sexy_yeast/Results/ \
+    --save_individual_runs \
+    --plot_individual_runs \
+    --initial_fitness 0 \
+    --random_seed_env 42 \
+    --log_level INFO  
+
+
+

@@ -335,6 +335,10 @@ class EvolutionarySimulationApp:
             self.visualizer.plot_parent_offspring_relationships(
                 diploid_offspring, plots_dir, mating_strategy
             )
+
+            self.visualizer.plot_min_max_parent_offspring_fitness(
+                diploid_offspring, plots_dir, mating_strategy
+            )
             
             # Genomic distance effects
             self.visualizer.plot_genomic_distance_effects(
