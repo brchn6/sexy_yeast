@@ -405,13 +405,104 @@ bsub -q gsla-cpu -R rusage[mem=42GB] /home/labs/pilpel/barc/sexy_yeast/src/main_
 bsub -q gsla-cpu -R rusage[mem=42GB] /home/labs/pilpel/barc/sexy_yeast/src/main_simulation_BC.py --genome_size 3 --generations 7 --mating_strategy all_vs_all --fitness_method sherrington_kirkpatrick --beta 0 --rho 0.25 --num_runs 1000 --output_dir /home/labs/pilpel/barc/sexy_yeast/Results/1000runs/sumsumiii --initial_fitness 0
 
 
-bsub -q gsla-cpu -R rusage[mem=42GB] /home/labs/pilpel/barc/sexy_yeast/src/main_simulation_BC.py --genome_size 2 --generations 7 --mating_strategy all_vs_all --fitness_method single_position --beta 0 --rho 0.25 --num_runs 10 --output_dir /home/labs/pilpel/barc/sexy_yeast/Results/ --save_individual_runs --initial_fitness 0 --random_seed_env 42
-bsub -q gsla-cpu -R rusage[mem=42GB] /home/labs/pilpel/barc/sexy_yeast/src/main_simulation_BC.py --genome_size 2 --generations 2 --mating_strategy all_vs_all --fitness_method single_position --beta 0 --rho 0.25 --num_runs 1 --output_dir /home/labs/pilpel/barc/sexy_yeast/Results/ --initial_fitness 0  --random_seed_env 42 --save_individual_runs
-bsub -q gsla-cpu -R rusage[mem=42GB] /home/labs/pilpel/barc/sexy_yeast/src/main_simulation_BC.py --genome_size 4 --generations 7 --mating_strategy all_vs_all --fitness_method single_position --beta 0 --rho 0.25 --num_runs 10 --output_dir /home/labs/pilpel/barc/sexy_yeast/Results/ --save_individual_runs --initial_fitness 0 --random_seed_env 42
-bsub -q gsla-cpu -R rusage[mem=42GB] /home/labs/pilpel/barc/sexy_yeast/src/main_simulation_BC.py --genome_size 4 --generations 2 --mating_strategy all_vs_all --fitness_method single_position --beta 0 --rho 0.25 --num_runs 1 --output_dir /home/labs/pilpel/barc/sexy_yeast/Results/ --initial_fitness 0  --random_seed_env 42 --save_individual_runs
+bsub -q gsla-cpu -R rusage[mem=42GB] /home/labs/pilpel/barc/sexy_yeast/src/main_simulation_BC.py --genome_size 2 --generations 7 --fitness_method single_position --beta 0  --output_dir /home/labs/pilpel/barc/sexy_yeast/Results/ --save_individual_runs --initial_fitness 0 --random_seed_env 42
+bsub -q gsla-cpu -R rusage[mem=42GB] /home/labs/pilpel/barc/sexy_yeast/src/main_simulation_BC.py --genome_size 2 --generations 2 --fitness_method single_position --beta 0  --output_dir /home/labs/pilpel/barc/sexy_yeast/Results/ --save_individual_runs --initial_fitness 0 --random_seed_env 42
+bsub -q gsla-cpu -R rusage[mem=42GB] /home/labs/pilpel/barc/sexy_yeast/src/main_simulation_BC.py --genome_size 4 --generations 7 --fitness_method single_position --beta 0  --output_dir /home/labs/pilpel/barc/sexy_yeast/Results/ --save_individual_runs --initial_fitness 0 --random_seed_env 42
+bsub -q gsla-cpu -R rusage[mem=42GB] /home/labs/pilpel/barc/sexy_yeast/src/main_simulation_BC.py --genome_size 4 --generations 2 --fitness_method single_position --beta 0  --output_dir /home/labs/pilpel/barc/sexy_yeast/Results/ --save_individual_runs --initial_fitness 0 --random_seed_env 42
 
 
 
 ---27-May-2025 18:35:07---
 
 /home/labs/pilpel/barc/sexy_yeast/src/main_simulation_BC.py --genome_size 2 --generations 7 --mating_strategy all_vs_all --fitness_method single_position --beta 0 --rho 0.25 --num_runs 1 --output_dir /home/labs/pilpel/barc/sexy_yeast/Results/ --save_individual_runs --initial_fitness 0 --random_seed_env 42
+/home/labs/pilpel/barc/sexy_yeast/src/main_simulation_BC.py --genome_size 2 --generations 4 --mating_strategy all_vs_all --fitness_method single_position --beta 0 --rho 0.25 --num_runs 1 --output_dir /home/labs/pilpel/barc/sexy_yeast/Results/ --save_individual_runs --initial_fitness 0 --random_seed_env 42
+
+
+
+---04-Jun-2025 10:02:32---
+bsub -q gsla-cpu -R rusage[mem=42GB] /home/labs/pilpel/barc/sexy_yeast/src/main_simulation_BC.py --genome_size 2 --generations 7 --fitness_method single_position --beta 0  --output_dir /home/labs/pilpel/barc/sexy_yeast/Results/ --save_individual_runs --initial_fitness 0 --random_seed_env 42
+bsub -q gsla-cpu -R rusage[mem=42GB] /home/labs/pilpel/barc/sexy_yeast/src/main_simulation_BC.py --genome_size 2 --generations 2 --fitness_method single_position --beta 0  --output_dir /home/labs/pilpel/barc/sexy_yeast/Results/ --save_individual_runs --initial_fitness 0 --random_seed_env 42
+bsub -q gsla-cpu -R rusage[mem=42GB] /home/labs/pilpel/barc/sexy_yeast/src/main_simulation_BC.py --genome_size 4 --generations 7 --fitness_method single_position --beta 0  --output_dir /home/labs/pilpel/barc/sexy_yeast/Results/ --save_individual_runs --initial_fitness 0 --random_seed_env 42
+bsub -q gsla-cpu -R rusage[mem=42GB] /home/labs/pilpel/barc/sexy_yeast/src/main_simulation_BC.py --genome_size 4 --generations 2 --fitness_method single_position --beta 0  --output_dir /home/labs/pilpel/barc/sexy_yeast/Results/ --save_individual_runs --initial_fitness 0 --random_seed_env 42
+
+
+
+/home/labs/pilpel/barc/sexy_yeast/src/main_simulation_BC.py --genome_size 2 --generations 2 --fitness_method single_position --beta 0  --output_dir /home/labs/pilpel/barc/sexy_yeast/Results/ --save_individual_runs --initial_fitness 0 --random_seed_env 42
+
+bsub -q gsla-cpu -R rusage[mem=4GB] /home/labs/pilpel/barc/sexy_yeast/src/main_simulation_BC.py --genome_size 2000 --generations 7 --fitness_method sherrington_kirkpatrick --beta 0  --output_dir /home/labs/pilpel/barc/sexy_yeast/Results/ --save_individual_runs --initial_fitness 0 --random_seed_env 42
+bsub -q gsla-cpu -R rusage[mem=4GB] /home/labs/pilpel/barc/sexy_yeast/src/main_simulation_BC.py --genome_size 1280 --generations 7 --fitness_method sherrington_kirkpatrick --beta 0  --output_dir /home/labs/pilpel/barc/sexy_yeast/Results/ --save_individual_runs --initial_fitness 0 --random_seed_env 42
+/home/labs/pilpel/barc/sexy_yeast/src/main_simulation_BC.py --genome_size 1280 --generations 4 --fitness_method sherrington_kirkpatrick --beta 0  --output_dir /home/labs/pilpel/barc/sexy_yeast/Results/ --save_individual_runs --initial_fitness 0 --random_seed_env 42
+
+
+---09-Jun-2025 08:18:13---
+
+
+
+/home/labs/pilpel/barc/sexy_yeast/src/evolutionary_simulation.py --genome_size 2 --generations 4 --mating_strategy all_vs_all --fitness_method single_position --beta 0 --rho 0.25 --num_runs 1 --output_dir /home/labs/pilpel/barc/sexy_yeast/Results/ --save_individual_runs --initial_fitness 0 --random_seed_env 42
+
+
+(base) 08:18:39 🖤 barc@cn804:~ > /home/labs/pilpel/barc/sexy_yeast/src/evolutionary_simulation.py --genome_size 2 --generations 4 --mating_strategy all_vs_all --fitness_method single_position --beta 0 --rho 0.25 --num_runs 1 --output_dir /home/labs/pilpel/barc/sexy_yeast/Results/ --save_individual_runs --initial_fitness 0 --random_seed_env 42 --help
+usage: evolutionary_simulation.py [-h] [--generations GENERATIONS] [--genome_size GENOME_SIZE]
+                                  [--num_runs NUM_RUNS]
+                                  [--fitness_method {sherrington_kirkpatrick,single_position,additive}]
+                                  [--beta BETA] [--rho RHO]
+                                  [--mating_strategy {one_to_one,all_vs_all,mating_types}]
+                                  [--random_seed_env RANDOM_SEED_ENV]
+                                  [--initial_genome_seed INITIAL_GENOME_SEED]
+                                  [--mutation_seed MUTATION_SEED] [--initial_fitness INITIAL_FITNESS]
+                                  [--output_dir OUTPUT_DIR]
+                                  [--log_level {DEBUG,INFO,WARNING,ERROR,CRITICAL}] [--log_genomes]
+                                  [--save_individual_runs] [--create_plots] [--plot_individual_runs]
+                                  [--max_population_size MAX_POPULATION_SIZE]
+
+Run evolutionary simulation with diploid analysis
+
+options:
+  -h, --help            show this help message and exit
+  --generations GENERATIONS
+                        Number of generations to simulate (default: 5)
+  --genome_size GENOME_SIZE
+                        Size of the genome (default: 100)
+  --num_runs NUM_RUNS   Number of independent simulation runs (default: 1)
+  --fitness_method {sherrington_kirkpatrick,single_position,additive}
+                        Method for calculating fitness (default: sherrington_kirkpatrick)
+  --beta BETA           Beta parameter for Sherrington-Kirkpatrick model (default: 0.5)
+  --rho RHO             Rho parameter for Sherrington-Kirkpatrick model (default: 0.25)
+  --mating_strategy {one_to_one,all_vs_all,mating_types}
+                        Strategy for organism mating (default: all_vs_all)
+  --random_seed_env RANDOM_SEED_ENV
+                        Seed for environment initialization (same across runs) (default: None)
+  --initial_genome_seed INITIAL_GENOME_SEED
+                        Seed for initial genome generation (default: None)
+  --mutation_seed MUTATION_SEED
+                        Seed for mutations during reproduction (default: None)
+  --initial_fitness INITIAL_FITNESS
+                        Target fitness for initial organism (default: None)
+  --output_dir OUTPUT_DIR
+                        Base name for output directory (default: Results)
+  --log_level {DEBUG,INFO,WARNING,ERROR,CRITICAL}
+                        Logging level (default: INFO)
+  --log_genomes         Log individual genomes each generation (default: False)
+  --save_individual_runs
+                        Save detailed data for individual runs (default: False)
+  --create_plots        Create visualization plots (default: True)
+  --plot_individual_runs
+                        Create plots for individual runs (requires --save_individual_runs) (default:
+                        False)
+  --max_population_size MAX_POPULATION_SIZE
+                        Maximum population size per generation (default: 100000)
+
+
+/home/labs/pilpel/barc/sexy_yeast/src/evolutionary_simulation.py \
+    --genome_size 2 \
+    --generations 4 \
+    --mating_strategy all_vs_all \
+    --fitness_method single_position \
+    --beta 0 \
+    --rho 0.25 \
+    --num_runs 1 \
+    --output_dir /home/labs/pilpel/barc/sexy_yeast/Results/ \
+    --save_individual_runs \
+    --plot_individual_runs \
+    --initial_fitness 0 \
+    --random_seed_env 42
