@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/home/labs/pilpel/barc/.conda/envs/sexy_yeast_env/bin/python
 """
 Main application for the evolutionary simulation.
 
@@ -321,9 +321,15 @@ class EvolutionarySimulationApp:
         self.logger.debug(f"Simulation object attributes: {dir(simulation)}")
 
         
+        # Get all organisms from the simulation for tree visualization
+        all_organisms = self._extract_organisms_for_tree(simulation)
+
         try:
             # Fitness evolution plot
             self.visualizer.plot_fitness_evolution(simulation, plots_dir)
+    
+            # Basic relationship tree (limited to 800 organisms for performance)
+            self.visualizer.plot_relationship_tree(all_organisms, plots_dir, filename="relationship_tree.png",max_organisms=800)
             
             # Parent-offspring relationships
             self.visualizer.plot_parent_offspring_relationships(
@@ -343,11 +349,6 @@ class EvolutionarySimulationApp:
             # Fitness heatmap
             self.visualizer.plot_fitness_heatmap(diploid_offspring, plots_dir)
 
-            # Get all organisms from the simulation for tree visualization
-            all_organisms = self._extract_organisms_for_tree(simulation)
-            
-            # Basic relationship tree (limited to 800 organisms for performance)
-            self.visualizer.plot_relationship_tree(all_organisms, plots_dir, filename="relationship_tree.png",max_organisms=800)
             
             self.logger.info(f"Created plots for run {run_id}")
             
@@ -395,7 +396,6 @@ class EvolutionarySimulationApp:
         except Exception as e:
             self.logger.warning(f"Failed to extract organisms for tree visualization: {e}")
             return []
-
 
     def run_multiple_simulations(self) -> List[Dict[str, Any]]:
         """
