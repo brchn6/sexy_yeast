@@ -20,7 +20,7 @@ import json
 from core_models import Environment, FitnessMethod, MatingStrategy
 from simulation_engine import SimulationRunner
 from analysis_tools import SimulationAnalyzer, MultiRunAnalyzer, save_analysis_results
-from visualization import SimulationVisualizer, MultiRunVisualizer
+from visualization import SimulationVisualizer
 
 
 def setup_logging(log_level: str = "INFO", log_directory: Optional[Path] = None) -> logging.Logger:
@@ -522,20 +522,6 @@ class EvolutionarySimulationApp:
             
             f.write(f"\nDetailed results available in: {self.output_path}\n")
     
-    def create_comparative_plots(self, aggregated_stats: Dict[str, Any]) -> None:
-        """Create plots comparing results across runs."""
-        if not self.args.create_plots:
-            return
-        
-        try:
-            multi_visualizer = MultiRunVisualizer()
-            plots_dir = self.output_path / "comparative_plots"
-            multi_visualizer.plot_run_comparison(aggregated_stats, plots_dir)
-            
-            self.logger.info("Created comparative plots")
-            
-        except Exception as e:
-            self.logger.warning(f"Failed to create comparative plots: {e}")
     
     def run(self) -> None:
         """Main application entry point."""
@@ -568,10 +554,7 @@ class EvolutionarySimulationApp:
             
             # Save results
             self.save_final_results(aggregated_stats, all_results)
-            
-            # Create comparative plots
-            self.create_comparative_plots(aggregated_stats)
-            
+                        
             # Log completion
             total_time = time.time() - start_time
             self.logger.info(f"\n==== SIMULATION COMPLETE ====")

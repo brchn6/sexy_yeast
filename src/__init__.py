@@ -128,7 +128,7 @@ __all__ = [
     
     # Visualization
     "SimulationVisualizer",
-    "MultiRunVisualizer",
+
     
     # Configuration and utilities
     "SimulationConfig",
