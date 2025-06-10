@@ -282,7 +282,7 @@ class MatingEngine:
                 offspring = DiploidOrganism(parent1, parent2, fitness_model=model)
                 diploid_offspring[model].append(offspring)
                 
-                if log_crosses and len(organisms) <= 10:  # Only log for small populations
+                if log_crosses and len(organisms) <= 5:  # Only log for small populations
                     self._log_cross(parent1, parent2, offspring, model)
         
         self.logger.info(f"All-vs-all mating: {len(organisms)} organisms, "
