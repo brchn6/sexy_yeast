@@ -151,9 +151,8 @@ class Environment:
             if position >= len(genome):
                 return 0.0
             
-            # Normalize values between 0 and 1
-            return float(genome[position])  # This would use 0, 0.5, or 1.0
-
+            # Normalize values from [-1, 1] to [0, 1]
+            return (genome[position] + 1) / 2.0
             
         elif method == FitnessMethod.ADDITIVE:
             weights = self.alternative_params["weights"]
@@ -279,67 +278,93 @@ class Organism:
 
 class DiploidOrganism:
     """
-    Represents a diploid organism created from two haploid parents.
+    Represents a diploid organism resulting from mating two haploid organisms.
     
-    Diploid organisms have two alleles for each locus and calculate fitness
-    based on dominance relationships between alleles.
+    This class handles different fitness models (dominant, recessive, codominant)
+    and calculates fitness based on the combined genomes of the parents.
     """
     
     def __init__(self, parent1: Organism, parent2: Organism, 
                  fitness_model: str = "dominant", mating_type: Optional[MatingType] = None):
         """
-        Create a diploid organism from two haploid parents.
+        Create a diploid organism from two parents.
         
         Args:
             parent1: First parent organism
             parent2: Second parent organism
-            fitness_model: How to handle dominance ("dominant", "recessive", "codominant")
-            mating_type: Mating type if applicable
+            fitness_model: How to calculate fitness from alleles
+            mating_type: Optional mating type for this organism
         """
-        if len(parent1.genome) != len(parent2.genome):
-            raise ValueError("Parent genomes must have the same length")
-        
-        self.allele1 = parent1.genome.copy()
-        self.allele2 = parent2.genome.copy()
+        self.parent1 = parent1
+        self.parent2 = parent2
         self.fitness_model = fitness_model
-        self.environment = parent1.environment
         self.mating_type = mating_type
         
-        # Store IDs and fitness values
-        self.id = str(uuid.uuid4())
-        self.parent1_id = parent1.id
-        self.parent2_id = parent2.id
-        self.parent1_fitness = parent1.fitness
-        self.parent2_fitness = parent2.fitness
-        self.avg_parent_fitness = (parent1.fitness + parent2.fitness) / 2
+        # Store parent genomes as alleles
+        self.allele1 = parent1.genome.copy()
+        self.allele2 = parent2.genome.copy()
         
         # Calculate fitness
         self.fitness = self.calculate_fitness()
+        
+        # Store parent fitness for analysis
+        self.parent1_fitness = parent1.fitness
+        self.parent2_fitness = parent2.fitness
+        self.avg_parent_fitness = (parent1.fitness + parent2.fitness) / 2
     
     def _get_effective_genome(self) -> np.ndarray:
-        """Calculate the effective genome based on fitness model."""
-        if self.fitness_model == "codominant":
-            return (self.allele1 + self.allele2) / 2
-        
-        elif self.fitness_model == "dominant":
-            # Take locus-wise max (i.e., at least one '1' gives '1')
-            return np.maximum(self.allele1, self.allele2)
-
-        elif self.fitness_model == "recessive":
-            # Take locus-wise min (i.e., both must be '1' to stay '1')
-            return np.minimum(self.allele1, self.allele2)
-
+        """Get effective genome based on fitness model."""
+        if self.parent1.environment.fitness_method == FitnessMethod.SINGLE_POSITION:
+            # For single position model, handle alleles at the target position
+            position = self.parent1.environment.alternative_params["position"]
+            if self.fitness_model == "dominant":
+                # 1 dominates -1 at the target position
+                effective_genome = self.allele1.copy()
+                effective_genome[position] = max(self.allele1[position], self.allele2[position])
+            elif self.fitness_model == "recessive":
+                # -1 is recessive at the target position
+                effective_genome = self.allele1.copy()
+                effective_genome[position] = min(self.allele1[position], self.allele2[position])
+            else:  # codominant
+                # Average effect at the target position
+                effective_genome = self.allele1.copy()
+                effective_genome[position] = (self.allele1[position] + self.allele2[position]) / 2
+            return effective_genome
         else:
-            raise ValueError(f"Unknown fitness model: {self.fitness_model}")
-
-
+            # For other fitness methods, use the original logic
+            if self.fitness_model == "dominant":
+                # 1 dominates -1
+                return np.maximum(self.allele1, self.allele2)
+            elif self.fitness_model == "recessive":
+                # -1 is recessive
+                return np.minimum(self.allele1, self.allele2)
+            elif self.fitness_model == "codominant":
+                # Average effect
+                return (self.allele1 + self.allele2) / 2
+            else:
+                raise ValueError(f"Unknown fitness model: {self.fitness_model}")
+    
     def calculate_fitness(self) -> float:
-        """Calculate fitness using the effective genome."""
+        """Calculate fitness based on the effective genome."""
         effective_genome = self._get_effective_genome()
-        return self.environment.calculate_fitness(effective_genome)
+        return self.parent1.environment.calculate_fitness(effective_genome)
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert the diploid organism to a dictionary for serialization."""
+        return {
+            "fitness": float(self.fitness),
+            "fitness_model": self.fitness_model,
+            "parent1_fitness": float(self.parent1_fitness),
+            "parent2_fitness": float(self.parent2_fitness),
+            "avg_parent_fitness": float(self.avg_parent_fitness),
+            "allele1": self.allele1.tolist(),
+            "allele2": self.allele2.tolist(),
+            "mating_type": self.mating_type.value if self.mating_type else None
+        }
     
     def __repr__(self) -> str:
-        return f"DiploidOrganism(id={self.id[:8]}, model={self.fitness_model}, fit={self.fitness:.4f})"
+        """String representation of the diploid organism."""
+        return f"DiploidOrganism(fitness={self.fitness:.4f}, model={self.fitness_model})"
 
 
 class OrganismWithMatingType:

@@ -16,11 +16,15 @@ from datetime import datetime
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 import json
+import matplotlib.pyplot as plt
+import seaborn as sns
+import numpy as np
 
 from core_models import Environment, FitnessMethod, MatingStrategy
 from simulation_engine import SimulationRunner
-from analysis_tools import SimulationAnalyzer, MultiRunAnalyzer, save_analysis_results
-from visualization import SimulationVisualizer
+from analysis_tools import SimulationAnalyzer, MultiRunAnalyzer, save_analysis_results ,SimulationDataCollector
+from visualization import SimulationVisualizer , MultiSimulationVisualizer
+from config_utils import save_json_with_numpy
 
 
 def setup_logging(log_level: str = "INFO", log_directory: Optional[Path] = None) -> logging.Logger:
@@ -109,7 +113,6 @@ def create_output_directory(base_dir: str, args: argparse.Namespace) -> Path:
     
     return output_path
 
-
 class EvolutionarySimulationApp:
     """
     Main application class that orchestrates the entire simulation workflow.
@@ -128,6 +131,9 @@ class EvolutionarySimulationApp:
         self.simulation_runner = None
         self.analyzer = None
         self.visualizer = None
+
+        # collector for simulation data
+        self.data_collector = SimulationDataCollector()
     
     def parse_arguments(self) -> argparse.Namespace:
         """Parse and validate command-line arguments."""
@@ -273,8 +279,13 @@ class EvolutionarySimulationApp:
         
         # Analyze results
         analysis_result = self.analyzer.analyze_simulation(simulation_result)
+        
+        # Add run metadata
         analysis_result["run_id"] = run_id
         analysis_result["run_time_seconds"] = time.time() - start_time
+        
+        # Add raw diploid data for visualization
+        analysis_result["diploid_offspring"] = simulation_result["diploid_offspring"]
         
         # Save individual run data if requested
         if self.args.save_individual_runs:
@@ -414,7 +425,11 @@ class EvolutionarySimulationApp:
             try:
                 result = self.run_single_simulation(run_id)
                 all_results.append(result)
+                self.logger.info(f"Run {run_id} completed successfully")
                 
+                # Collect data for later analysis
+                self.data_collector.add_run_data(result)
+
                 # Monitor memory usage
                 memory_percent = psutil.virtual_memory().percent
                 self.logger.info(f"Memory usage after run {run_id}: {memory_percent:.1f}%")
@@ -459,20 +474,37 @@ class EvolutionarySimulationApp:
     def save_final_results(self, aggregated_stats: Dict[str, Any], 
                           all_results: List[Dict[str, Any]]) -> None:
         """Save final aggregated results and summary."""
-        # Save aggregated statistics
-        save_analysis_results(aggregated_stats, self.output_path, "aggregated_analysis.json")
-        
-        # Save summary of all runs
-        summary_data = {
+        # Combine all data into one comprehensive structure
+        comprehensive_data = {
             "individual_runs": all_results,
-            "aggregated_stats": aggregated_stats
+            "aggregated_stats": aggregated_stats,
+            "collector_data": self.data_collector.get_all_data()
         }
-        save_analysis_results(summary_data, self.output_path, "complete_results.json")
         
-        # Create summary text file
+        # Save only one comprehensive JSON file
+        save_analysis_results(comprehensive_data, self.output_path, "simulation_results.json")
+        
+        # Create summary text file (for human readability)
         self._create_summary_report(aggregated_stats)
         
-        self.logger.info(f"Final results saved to {self.output_path}")
+        self.logger.info(f"Final results saved to {self.output_path}/simulation_results.json")
+
+        # Create multi-run visualizations
+        try:
+            multi_viz = MultiSimulationVisualizer()
+            plots_dir = self.output_path / "multi_run_plots"
+            plots_dir.mkdir(exist_ok=True)
+            
+            # Create plots using the collector data which has the correct structure
+            multi_viz.plot_parent_offspring_relationships(
+                self.data_collector.get_all_data(),
+                plots_dir
+            )
+            
+            self.logger.info(f"Multi-run plots saved to {plots_dir}")
+        except Exception as e:
+            self.logger.error(f"Failed to create multi-run plots: {e}")
+            self.logger.error("Error details:", exc_info=True)
     
     def _create_summary_report(self, aggregated_stats: Dict[str, Any]) -> None:
         """Create a human-readable summary report."""
@@ -521,7 +553,6 @@ class EvolutionarySimulationApp:
                         f.write(f"  Fitness improvement: {imp_stats['mean']:.4f} ± {imp_stats['std']:.4f}\n")
             
             f.write(f"\nDetailed results available in: {self.output_path}\n")
-    
     
     def run(self) -> None:
         """Main application entry point."""

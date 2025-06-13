@@ -14,7 +14,8 @@ import networkx as nx
 from pathlib import Path
 from collections import defaultdict
 import logging
-from typing import Dict, List, Optional, Tuple, Any
+from typing import Dict, List, Optional, Tuple, Any, Union
+import scipy.stats
 
 
 from core_models import DiploidOrganism
@@ -457,50 +458,219 @@ class SimulationVisualizer:
         ax.set_title('Fitness Distribution Over Time', fontsize=14, pad=20)
         ax.grid(True, alpha=0.3)
     
-    def plot_parent_offspring_relationships(self, diploid_offspring: Dict[str, List[DiploidOrganism]],
-                                          output_path: Path, mating_strategy: str,
-                                          filename: str = "parent_offspring_fitness.png",
-                                          ylim: Tuple[float, float] = None) -> None:
-        """
-        Plot parent vs offspring fitness relationships for all models.
+    def plot_parent_offspring_relationships(self, data: Union[Dict[str, Any], List[Any]], output_dir: Path, mating_strategy: Optional[str] = None) -> None:
+        """Plot parent-offspring relationships.
         
         Args:
-            diploid_offspring: Dictionary of diploid organisms by model
-            output_path: Directory to save the plot
-            mating_strategy: Mating strategy used
-            filename: Name of the output file
-            ylim: Optional tuple of (ymin, ymax) to set y-axis limits
+            data: Dictionary containing simulation data or list of diploid offspring
+            output_dir: Directory to save the plots
+            mating_strategy: Optional mating strategy for individual run plots
         """
-        models = ["dominant", "recessive", "codominant"]
-        fig, axes = plt.subplots(1, 3, figsize=(18, 6))
-        
-        # Find global min and max offspring fitness across all models
-        all_offspring_fitness = []
-        for model in models:
-            organisms = diploid_offspring.get(model, [])
-            if organisms:
-                all_offspring_fitness.extend([org.fitness for org in organisms])
-        
-        if ylim is None and all_offspring_fitness:
-            min_fitness = min(all_offspring_fitness)
-            max_fitness = max(all_offspring_fitness)
-            padding = 0.3 * (max_fitness - min_fitness)
-            ylim = (min_fitness - padding, max_fitness + padding)
-            self.logger.debug(f"Setting y-axis limits to {ylim} based on data range.")
+        try:
+            # Create figure with subplots
+            fig, axes = plt.subplots(1, 3, figsize=(18, 6))
+            fig.suptitle(f"Parent-Offspring Relationships ({mating_strategy if mating_strategy else 'Multi-Run'})", fontsize=16)
             
-        
-        for idx, model in enumerate(models):
-            ax = axes[idx]
-            organisms = diploid_offspring.get(model, [])
+            # Handle individual run data (list of diploid offspring)
+            if isinstance(data, list):
+                # Extract parent-offspring fitness pairs
+                parent_offspring_pairs = [(org.parent_fitness, org.fitness) for org in data]
+                self._plot_parent_vs_offspring_fitness(axes[0], parent_offspring_pairs)
+                
+                # Extract PRS vs fitness pairs
+                prs_pairs = [(org.prs, org.fitness) for org in data]
+                self._plot_prs_vs_offspring_fitness(axes[1], prs_pairs)
+                
+                # Extract genomic distance vs fitness pairs
+                distance_pairs = [(org.genomic_distance, org.fitness) for org in data]
+                self._plot_genomic_distance_vs_offspring_fitness(axes[2], distance_pairs)
+                
+                # Adjust layout and save
+                plt.tight_layout()
+                self._save_figure(fig, output_dir, "parent_offspring_relationships.png")
+                return
             
-            self._plot_single_model_relationship(ax, organisms, model)
-            ax.set_ylim(ylim)
-
-        fig.suptitle(f'Parent vs Offspring Fitness ({mating_strategy} strategy)', 
-                    fontsize=16, y=1.03)
+            # Handle multi-run data (dictionary)
+            summary = data.get("summary", {})
+            if not summary:
+                self.logger.error("No summary data found for plotting")
+                return
+            
+            # Plot parent vs offspring fitness
+            self._plot_parent_vs_offspring_fitness(axes[0], summary)
+            
+            # Plot PRS vs offspring fitness
+            self._plot_prs_vs_offspring_fitness(axes[1], summary)
+            
+            # Plot genomic distance vs offspring fitness
+            self._plot_genomic_distance_vs_offspring_fitness(axes[2], summary)
+            
+            # Adjust layout and save
+            plt.tight_layout()
+            self._save_figure(fig, output_dir, "parent_offspring_relationships.png")
+            
+        except Exception as e:
+            self.logger.error(f"Error plotting parent-offspring relationships: {e}")
+            self.logger.error("Error details:", exc_info=True)
+    
+    def _plot_parent_vs_offspring_fitness(self, ax: plt.Axes, data: Union[Dict[str, Any], List[Tuple[float, float]]]) -> None:
+        """Plot parent vs offspring fitness relationships."""
+        ax.set_title("Parent vs Offspring Fitness")
+        ax.set_xlabel("Parent Fitness")
+        ax.set_ylabel("Offspring Fitness")
         
-        plt.tight_layout(rect=[0, 0, 1, 0.95])
-        self._save_figure(fig, output_path, f"{filename.split('.')[0]}_{mating_strategy}.png")
+        # Handle individual run data (list of tuples)
+        if isinstance(data, list):
+            if not data:
+                return
+            parent_fitness, offspring_fitness = zip(*data)
+            ax.scatter(parent_fitness, offspring_fitness, alpha=0.3, label="Parent-Offspring")
+            
+            # Add regression line
+            if len(parent_fitness) > 1:
+                slope, intercept, r_value, p_value, std_err = scipy.stats.linregress(
+                    parent_fitness, offspring_fitness
+                )
+                x = np.array([min(parent_fitness), max(parent_fitness)])
+                y = slope * x + intercept
+                ax.plot(x, y, color='blue', linestyle='--',
+                       label=f"Regression (r²={r_value**2:.3f})")
+            ax.legend()
+            ax.grid(True, alpha=0.3)
+            return
+        
+        # Handle multi-run data (dictionary)
+        for model, color in zip(["dominant", "recessive", "codominant"], 
+                              ["#1f77b4", "#ff7f0e", "#2ca02c"]):
+            model_data = data.get(model, {}).get("parent_offspring", [])
+            if not model_data:
+                continue
+            
+            # Unzip the data
+            parent_fitness, offspring_fitness = zip(*model_data)
+            
+            # Plot scatter
+            ax.scatter(parent_fitness, offspring_fitness, 
+                      alpha=0.3, label=model.capitalize(), color=color)
+            
+            # Add regression line
+            if len(parent_fitness) > 1:
+                slope, intercept, r_value, p_value, std_err = scipy.stats.linregress(
+                    parent_fitness, offspring_fitness
+                )
+                x = np.array([min(parent_fitness), max(parent_fitness)])
+                y = slope * x + intercept
+                ax.plot(x, y, color=color, linestyle='--',
+                       label=f"{model.capitalize()} (r²={r_value**2:.3f})")
+        
+        ax.legend()
+        ax.grid(True, alpha=0.3)
+    
+    def _plot_prs_vs_offspring_fitness(self, ax: plt.Axes, data: Union[Dict[str, Any], List[Tuple[float, float]]]) -> None:
+        """Plot PRS vs offspring fitness relationships."""
+        ax.set_title("PRS vs Offspring Fitness")
+        ax.set_xlabel("Polygenic Risk Score")
+        ax.set_ylabel("Offspring Fitness")
+        
+        # Handle individual run data (list of tuples)
+        if isinstance(data, list):
+            if not data:
+                return
+            prs_scores, offspring_fitness = zip(*data)
+            ax.scatter(prs_scores, offspring_fitness, alpha=0.3, label="PRS-Fitness")
+            
+            # Add regression line
+            if len(prs_scores) > 1:
+                slope, intercept, r_value, p_value, std_err = scipy.stats.linregress(
+                    prs_scores, offspring_fitness
+                )
+                x = np.array([min(prs_scores), max(prs_scores)])
+                y = slope * x + intercept
+                ax.plot(x, y, color='blue', linestyle='--',
+                       label=f"Regression (r²={r_value**2:.3f})")
+            ax.legend()
+            ax.grid(True, alpha=0.3)
+            return
+        
+        # Handle multi-run data (dictionary)
+        for model, color in zip(["dominant", "recessive", "codominant"], 
+                              ["#1f77b4", "#ff7f0e", "#2ca02c"]):
+            model_data = data.get(model, {}).get("prs", [])
+            if not model_data:
+                continue
+            
+            # Unzip the data
+            prs_scores, offspring_fitness = zip(*model_data)
+            
+            # Plot scatter
+            ax.scatter(prs_scores, offspring_fitness, 
+                      alpha=0.3, label=model.capitalize(), color=color)
+            
+            # Add regression line
+            if len(prs_scores) > 1:
+                slope, intercept, r_value, p_value, std_err = scipy.stats.linregress(
+                    prs_scores, offspring_fitness
+                )
+                x = np.array([min(prs_scores), max(prs_scores)])
+                y = slope * x + intercept
+                ax.plot(x, y, color=color, linestyle='--',
+                       label=f"{model.capitalize()} (r²={r_value**2:.3f})")
+        
+        ax.legend()
+        ax.grid(True, alpha=0.3)
+    
+    def _plot_genomic_distance_vs_offspring_fitness(self, ax: plt.Axes, data: Union[Dict[str, Any], List[Tuple[float, float]]]) -> None:
+        """Plot genomic distance vs offspring fitness relationships."""
+        ax.set_title("Genomic Distance vs Offspring Fitness")
+        ax.set_xlabel("Genomic Distance")
+        ax.set_ylabel("Offspring Fitness")
+        
+        # Handle individual run data (list of tuples)
+        if isinstance(data, list):
+            if not data:
+                return
+            distances, offspring_fitness = zip(*data)
+            ax.scatter(distances, offspring_fitness, alpha=0.3, label="Distance-Fitness")
+            
+            # Add regression line
+            if len(distances) > 1:
+                slope, intercept, r_value, p_value, std_err = scipy.stats.linregress(
+                    distances, offspring_fitness
+                )
+                x = np.array([min(distances), max(distances)])
+                y = slope * x + intercept
+                ax.plot(x, y, color='blue', linestyle='--',
+                       label=f"Regression (r²={r_value**2:.3f})")
+            ax.legend()
+            ax.grid(True, alpha=0.3)
+            return
+        
+        # Handle multi-run data (dictionary)
+        for model, color in zip(["dominant", "recessive", "codominant"], 
+                              ["#1f77b4", "#ff7f0e", "#2ca02c"]):
+            model_data = data.get(model, {}).get("genomic_distance", [])
+            if not model_data:
+                continue
+            
+            # Unzip the data
+            distances, offspring_fitness = zip(*model_data)
+            
+            # Plot scatter
+            ax.scatter(distances, offspring_fitness, 
+                      alpha=0.3, label=model.capitalize(), color=color)
+            
+            # Add regression line
+            if len(distances) > 1:
+                slope, intercept, r_value, p_value, std_err = scipy.stats.linregress(
+                    distances, offspring_fitness
+                )
+                x = np.array([min(distances), max(distances)])
+                y = slope * x + intercept
+                ax.plot(x, y, color=color, linestyle='--',
+                       label=f"{model.capitalize()} (r²={r_value**2:.3f})")
+        
+        ax.legend()
+        ax.grid(True, alpha=0.3)
     
     def plot_min_max_parent_offspring_fitness(self, diploid_offspring: Dict[str, List[DiploidOrganism]],
                                             output_path: Path, mating_strategy: str,
@@ -786,84 +956,107 @@ class SimulationVisualizer:
         plt.tight_layout()
         self._save_figure(fig, output_path, f"{filename.split('.')[0]}_{mating_strategy}.png")
     
-    def _plot_prs_vs_fitness(self, ax, organisms: List[DiploidOrganism], model: str) -> None:
-        """Plot PRS vs fitness for a single model."""
-        ax.set_title(f'{model.capitalize()} Model', fontsize=12, pad=15)
-        ax.set_xlabel('Offspring PRS Score', fontsize=11)
-        ax.set_ylabel('Offspring Fitness', fontsize=11)
+    def _plot_prs_vs_fitness(self, ax, data, models):
+        """Plot relationship between PRS and fitness outcomes."""
+        has_data = False
+        for model in models:
+            if len(data[model]['prs_scores']) > 0:
+                has_data = True
+                sns.regplot(x=data[model]['prs_scores'],
+                          y=data[model]['offspring_fitness'],
+                          label=model, scatter_kws={'alpha':0.3},
+                          ax=ax)
+        
+        if has_data:
+            ax.legend()
+        else:
+            ax.text(0.5, 0.5, 'No data available',
+                   horizontalalignment='center',
+                   verticalalignment='center',
+                   transform=ax.transAxes)
+            
+        ax.set_xlabel('PRS Score')
+        ax.set_ylabel('Offspring Fitness')
         ax.grid(True, alpha=0.3)
-        
-        if not organisms:
-            ax.text(0.5, 0.5, 'No data', ha='center', va='center',
-                   transform=ax.transAxes, fontsize=14)
-            return
-        
-        try:
-            # Calculate PRS scores (limit for performance)
-            sample_organisms = organisms[:1000]
-            prs_scores = []
-            fitness_vals = []
-            
-            for org in sample_organisms:
-                try:
-                    prs = calculate_diploid_prs(org)
-                    prs_scores.append(prs)
-                    fitness_vals.append(org.fitness)
-                except:
-                    continue
-            
-            if not prs_scores:
-                ax.text(0.5, 0.5, 'PRS calculation failed', ha='center', va='center',
-                       transform=ax.transAxes, fontsize=12)
-                return
-            
-            prs_scores = np.array(prs_scores)
-            fitness_vals = np.array(fitness_vals)
-            
-            # Set focused limits
-            self._set_focused_limits(ax, prs_scores, fitness_vals)
-            
-            # Scatter plot
-            ax.scatter(prs_scores, fitness_vals, alpha=0.6, color=self.model_colors[model], 
-                      s=40, edgecolors='white', linewidth=0.5)
-            
-            # Add mean lines
-            ax.axhline(np.mean(fitness_vals), color='red', linestyle='--', alpha=0.7,
-                      label=f'Mean fitness: {np.mean(fitness_vals):.3f}')
-            ax.axvline(np.mean(prs_scores), color='blue', linestyle='--', alpha=0.7,
-                      label=f'Mean PRS: {np.mean(prs_scores):.3f}')
-            
-            # Add correlation if there's variation
-            if len(np.unique(prs_scores)) > 2:
-                self._add_prs_correlation(ax, prs_scores, fitness_vals)
-            
-            ax.legend(loc='lower right', fontsize=9)
-            
-        except Exception as e:
-            ax.text(0.5, 0.5, f'Error: {str(e)[:30]}...', ha='center', va='center',
-                   transform=ax.transAxes, fontsize=10)
     
-    def _add_prs_correlation(self, ax, prs_scores: np.ndarray, fitness_vals: np.ndarray) -> None:
-        """Add correlation analysis for PRS vs fitness."""
-        try:
-            from scipy import stats
+    def _plot_prs_improvement_correlation(self, ax, data, models):
+        """Plot correlation between PRS and fitness improvement."""
+        has_data = False
+        for model in models:
+            if len(data[model]['prs_scores']) > 0:
+                has_data = True
+                sns.regplot(x=data[model]['prs_scores'],
+                          y=data[model]['improvement'],
+                          label=model, scatter_kws={'alpha':0.3},
+                          ax=ax)
+        
+        if has_data:
+            ax.legend()
+        else:
+            ax.text(0.5, 0.5, 'No data available',
+                   horizontalalignment='center',
+                   verticalalignment='center',
+                   transform=ax.transAxes)
             
-            corr, p_value = stats.pearsonr(prs_scores, fitness_vals)
+        ax.set_xlabel('PRS Score')
+        ax.set_ylabel('Fitness Improvement')
+        ax.grid(True, alpha=0.3)
+    
+    def _plot_prs_distribution(self, ax, data, models):
+        """Plot distribution of PRS scores."""
+        has_data = False
+        for model in models:
+            if len(data[model]['prs_scores']) > 0:
+                has_data = True
+                sns.kdeplot(data=data[model]['prs_scores'],
+                          label=model, ax=ax)
+        
+        if has_data:
+            ax.legend()
+        else:
+            ax.text(0.5, 0.5, 'No data available',
+                   horizontalalignment='center',
+                   verticalalignment='center',
+                   transform=ax.transAxes)
             
-            # Add trend line
-            x_range = np.linspace(prs_scores.min(), prs_scores.max(), 100)
-            slope, intercept, _, _, _ = stats.linregress(prs_scores, fitness_vals)
-            y_pred = slope * x_range + intercept
+        ax.set_xlabel('PRS Score')
+        ax.set_ylabel('Density')
+        ax.grid(True, alpha=0.3)
+    
+    def _plot_prs_success_correlation(self, ax, data, models):
+        """Plot success rates at different PRS scores."""
+        has_data = False
+        for model in models:
+            if len(data[model]['prs_scores']) > 0:
+                has_data = True
+                prs_scores = data[model]['prs_scores']
+                improvements = [1 if imp > 0 else 0 for imp in data[model]['improvement']]
+                
+                # Calculate success rates for PRS bins
+                bins = np.linspace(min(prs_scores), max(prs_scores), 10)
+                success_rates = []
+                bin_centers = []
+                
+                for i in range(len(bins)-1):
+                    mask = (prs_scores >= bins[i]) & (prs_scores < bins[i+1])
+                    if sum(mask) > 0:
+                        success_rates.append(np.mean([imp for j, imp in 
+                                                    enumerate(improvements) if mask[j]]))
+                        bin_centers.append((bins[i] + bins[i+1]) / 2)
+                
+                ax.plot(bin_centers, success_rates, 'o-', label=model)
+        
+        if has_data:
+            ax.legend()
+        else:
+            ax.text(0.5, 0.5, 'No data available',
+                   horizontalalignment='center',
+                   verticalalignment='center',
+                   transform=ax.transAxes)
             
-            ax.plot(x_range, y_pred, 'r-', linewidth=2, alpha=0.8,
-                   label=f'Linear (R² = {corr**2:.3f})')
-            
-            ax.text(0.05, 0.95, f'Correlation: {corr:.3f}', 
-                   transform=ax.transAxes, fontsize=10, va='top', ha='left',
-                   bbox=dict(boxstyle='round,pad=0.3', facecolor='white', alpha=0.8))
-            
-        except Exception as e:
-            self.logger.warning(f"PRS correlation failed: {e}")
+        ax.set_xlabel('PRS Score')
+        ax.set_ylabel('Success Rate')
+        ax.grid(True, alpha=0.3)
     
     def plot_fitness_heatmap(self, diploid_offspring: Dict[str, List[DiploidOrganism]],
                            output_path: Path, filename: str = "fitness_heatmap.png") -> None:
@@ -934,3 +1127,248 @@ class SimulationVisualizer:
         
         self.logger.info(f"Saved plot: {filepath}")
 
+
+class MultiSimulationVisualizer:
+    """Creates visualizations for multiple simulation runs, focusing on parent-offspring relationships."""
+    
+    def __init__(self, style: str = "whitegrid", palette: str = "deep"):
+        """Initialize the visualizer with aesthetic settings."""
+        # Set up plotting style
+        plt.style.use('default')
+        sns.set_style(style)
+        sns.set_palette(palette)
+        
+        # Define consistent colors for different models
+        self.model_colors = {
+            "dominant": "#2E86AB",
+            "recessive": "#A23B72", 
+            "codominant": "#F18F01"
+        }
+        
+        # Set up logging
+        self.logger = logging.getLogger(__name__)
+    
+    def plot_parent_offspring_relationships(self, data: Dict[str, Any], output_dir: Path, mating_strategy: Optional[str] = None) -> None:
+        """Plot parent-offspring relationships.
+        
+        Args:
+            data: Dictionary containing simulation data or list of diploid offspring
+            output_dir: Directory to save the plots
+            mating_strategy: Optional mating strategy for individual run plots
+        """
+        try:
+            # Create figure with subplots
+            fig, axes = plt.subplots(1, 3, figsize=(18, 6))
+            fig.suptitle(f"Parent-Offspring Relationships ({mating_strategy if mating_strategy else 'Multi-Run'})", fontsize=16)
+            
+            # Handle individual run data (list of diploid offspring)
+            if isinstance(data, list):
+                # Extract parent-offspring fitness pairs
+                parent_offspring_pairs = [(org.parent_fitness, org.fitness) for org in data]
+                self._plot_parent_vs_offspring_fitness(axes[0], parent_offspring_pairs)
+                
+                # Extract PRS vs fitness pairs
+                prs_pairs = [(org.prs, org.fitness) for org in data]
+                self._plot_prs_vs_offspring_fitness(axes[1], prs_pairs)
+                
+                # Extract genomic distance vs fitness pairs
+                distance_pairs = [(org.genomic_distance, org.fitness) for org in data]
+                self._plot_genomic_distance_vs_offspring_fitness(axes[2], distance_pairs)
+                
+                # Adjust layout and save
+                plt.tight_layout()
+                self._save_figure(fig, output_dir, "parent_offspring_relationships.png")
+                return
+            
+            # Handle multi-run data (dictionary)
+            summary = data.get("summary", {})
+            if not summary:
+                self.logger.error("No summary data found for plotting")
+                return
+            
+            # Plot parent vs offspring fitness
+            self._plot_parent_vs_offspring_fitness(axes[0], summary)
+            
+            # Plot PRS vs offspring fitness
+            self._plot_prs_vs_offspring_fitness(axes[1], summary)
+            
+            # Plot genomic distance vs offspring fitness
+            self._plot_genomic_distance_vs_offspring_fitness(axes[2], summary)
+            
+            # Adjust layout and save
+            plt.tight_layout()
+            self._save_figure(fig, output_dir, "parent_offspring_relationships.png")
+            
+        except Exception as e:
+            self.logger.error(f"Error plotting parent-offspring relationships: {e}")
+            self.logger.error("Error details:", exc_info=True)
+    
+    def _plot_parent_vs_offspring_fitness(self, ax: plt.Axes, data: Union[Dict[str, Any], List[Tuple[float, float]]]) -> None:
+        """Plot parent vs offspring fitness relationships."""
+        ax.set_title("Parent vs Offspring Fitness")
+        ax.set_xlabel("Parent Fitness")
+        ax.set_ylabel("Offspring Fitness")
+        
+        # Handle individual run data (list of tuples)
+        if isinstance(data, list):
+            if not data:
+                return
+            parent_fitness, offspring_fitness = zip(*data)
+            ax.scatter(parent_fitness, offspring_fitness, alpha=0.3, label="Parent-Offspring")
+            
+            # Add regression line
+            if len(parent_fitness) > 1:
+                slope, intercept, r_value, p_value, std_err = scipy.stats.linregress(
+                    parent_fitness, offspring_fitness
+                )
+                x = np.array([min(parent_fitness), max(parent_fitness)])
+                y = slope * x + intercept
+                ax.plot(x, y, color='blue', linestyle='--',
+                       label=f"Regression (r²={r_value**2:.3f})")
+            ax.legend()
+            ax.grid(True, alpha=0.3)
+            return
+        
+        # Handle multi-run data (dictionary)
+        for model, color in zip(["dominant", "recessive", "codominant"], 
+                              ["#1f77b4", "#ff7f0e", "#2ca02c"]):
+            model_data = data.get(model, {}).get("parent_offspring", [])
+            if not model_data:
+                continue
+            
+            # Unzip the data
+            parent_fitness, offspring_fitness = zip(*model_data)
+            
+            # Plot scatter
+            ax.scatter(parent_fitness, offspring_fitness, 
+                      alpha=0.3, label=model.capitalize(), color=color)
+            
+            # Add regression line
+            if len(parent_fitness) > 1:
+                slope, intercept, r_value, p_value, std_err = scipy.stats.linregress(
+                    parent_fitness, offspring_fitness
+                )
+                x = np.array([min(parent_fitness), max(parent_fitness)])
+                y = slope * x + intercept
+                ax.plot(x, y, color=color, linestyle='--',
+                       label=f"{model.capitalize()} (r²={r_value**2:.3f})")
+        
+        ax.legend()
+        ax.grid(True, alpha=0.3)
+    
+    def _plot_prs_vs_offspring_fitness(self, ax: plt.Axes, data: Union[Dict[str, Any], List[Tuple[float, float]]]) -> None:
+        """Plot PRS vs offspring fitness relationships."""
+        ax.set_title("PRS vs Offspring Fitness")
+        ax.set_xlabel("Polygenic Risk Score")
+        ax.set_ylabel("Offspring Fitness")
+        
+        # Handle individual run data (list of tuples)
+        if isinstance(data, list):
+            if not data:
+                return
+            prs_scores, offspring_fitness = zip(*data)
+            ax.scatter(prs_scores, offspring_fitness, alpha=0.3, label="PRS-Fitness")
+            
+            # Add regression line
+            if len(prs_scores) > 1:
+                slope, intercept, r_value, p_value, std_err = scipy.stats.linregress(
+                    prs_scores, offspring_fitness
+                )
+                x = np.array([min(prs_scores), max(prs_scores)])
+                y = slope * x + intercept
+                ax.plot(x, y, color='blue', linestyle='--',
+                       label=f"Regression (r²={r_value**2:.3f})")
+            ax.legend()
+            ax.grid(True, alpha=0.3)
+            return
+        
+        # Handle multi-run data (dictionary)
+        for model, color in zip(["dominant", "recessive", "codominant"], 
+                              ["#1f77b4", "#ff7f0e", "#2ca02c"]):
+            model_data = data.get(model, {}).get("prs", [])
+            if not model_data:
+                continue
+            
+            # Unzip the data
+            prs_scores, offspring_fitness = zip(*model_data)
+            
+            # Plot scatter
+            ax.scatter(prs_scores, offspring_fitness, 
+                      alpha=0.3, label=model.capitalize(), color=color)
+            
+            # Add regression line
+            if len(prs_scores) > 1:
+                slope, intercept, r_value, p_value, std_err = scipy.stats.linregress(
+                    prs_scores, offspring_fitness
+                )
+                x = np.array([min(prs_scores), max(prs_scores)])
+                y = slope * x + intercept
+                ax.plot(x, y, color=color, linestyle='--',
+                       label=f"{model.capitalize()} (r²={r_value**2:.3f})")
+        
+        ax.legend()
+        ax.grid(True, alpha=0.3)
+    
+    def _plot_genomic_distance_vs_offspring_fitness(self, ax: plt.Axes, data: Union[Dict[str, Any], List[Tuple[float, float]]]) -> None:
+        """Plot genomic distance vs offspring fitness relationships."""
+        ax.set_title("Genomic Distance vs Offspring Fitness")
+        ax.set_xlabel("Genomic Distance")
+        ax.set_ylabel("Offspring Fitness")
+        
+        # Handle individual run data (list of tuples)
+        if isinstance(data, list):
+            if not data:
+                return
+            distances, offspring_fitness = zip(*data)
+            ax.scatter(distances, offspring_fitness, alpha=0.3, label="Distance-Fitness")
+            
+            # Add regression line
+            if len(distances) > 1:
+                slope, intercept, r_value, p_value, std_err = scipy.stats.linregress(
+                    distances, offspring_fitness
+                )
+                x = np.array([min(distances), max(distances)])
+                y = slope * x + intercept
+                ax.plot(x, y, color='blue', linestyle='--',
+                       label=f"Regression (r²={r_value**2:.3f})")
+            ax.legend()
+            ax.grid(True, alpha=0.3)
+            return
+        
+        # Handle multi-run data (dictionary)
+        for model, color in zip(["dominant", "recessive", "codominant"], 
+                              ["#1f77b4", "#ff7f0e", "#2ca02c"]):
+            model_data = data.get(model, {}).get("genomic_distance", [])
+            if not model_data:
+                continue
+            
+            # Unzip the data
+            distances, offspring_fitness = zip(*model_data)
+            
+            # Plot scatter
+            ax.scatter(distances, offspring_fitness, 
+                      alpha=0.3, label=model.capitalize(), color=color)
+            
+            # Add regression line
+            if len(distances) > 1:
+                slope, intercept, r_value, p_value, std_err = scipy.stats.linregress(
+                    distances, offspring_fitness
+                )
+                x = np.array([min(distances), max(distances)])
+                y = slope * x + intercept
+                ax.plot(x, y, color=color, linestyle='--',
+                       label=f"{model.capitalize()} (r²={r_value**2:.3f})")
+        
+        ax.legend()
+        ax.grid(True, alpha=0.3)
+    
+    def _save_figure(self, fig, output_path: Path, filename: str) -> None:
+        """Save figure to file."""
+        output_path = Path(output_path)
+        output_path.mkdir(parents=True, exist_ok=True)
+        
+        filepath = output_path / filename
+        fig.savefig(filepath, dpi=300, bbox_inches='tight')
+        plt.close(fig)
+        
+        self.logger.info(f"Saved figure to {filepath}")
