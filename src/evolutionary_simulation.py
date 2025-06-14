@@ -503,18 +503,7 @@ class EvolutionarySimulationApp:
                 plots_dir.mkdir(exist_ok=True)
                 
                 # Create plots using the collector data which has the correct structure
-                multi_viz.plot_parent_offspring_relationships(
-                    self.data_collector.get_all_data(),
-                    plots_dir
-                )
-                
-                # Additional multi-run plots
-                multi_viz.plot_fitness_evolution_comparison(
-                    self.data_collector.get_all_data(),
-                    plots_dir
-                )
-                
-                multi_viz.plot_model_comparison_summary(
+                multi_viz.plot_all_analyses(
                     self.data_collector.get_all_data(),
                     plots_dir
                 )
