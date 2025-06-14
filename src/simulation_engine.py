@@ -18,7 +18,7 @@ import psutil
 
 from core_models import (
     Environment, Organism, DiploidOrganism, OrganismWithMatingType,
-    MatingStrategy, MatingType, FitnessMethod
+    MatingStrategy, MatingType, FitnessMethod, calculate_genomic_distance
 )
 
 
@@ -115,6 +115,9 @@ class EvolutionarySimulation:
         self.individual_fitness[initial_organism.id].append((0, initial_organism.fitness))
         self.current_generation = 0
         
+        # Record initial statistics
+        self._record_generation_stats(0, [initial_organism.fitness])
+        
         self.logger.info(f"Population initialized with organism {initial_organism.id[:8]}")
     
     def run_generations(self, num_generations: int, 
@@ -173,13 +176,16 @@ class EvolutionarySimulation:
     
     def _record_generation_stats(self, generation: int, fitness_values: List[float]) -> None:
         """Record statistics for this generation."""
+        if not fitness_values:
+            return
+            
         stats = {
             'generation': generation,
             'population_size': len(self.population),
-            'avg_fitness': np.mean(fitness_values),
-            'max_fitness': np.max(fitness_values),
-            'min_fitness': np.min(fitness_values),
-            'std_fitness': np.std(fitness_values)
+            'avg_fitness': float(np.mean(fitness_values)),
+            'max_fitness': float(np.max(fitness_values)),
+            'min_fitness': float(np.min(fitness_values)),
+            'std_fitness': float(np.std(fitness_values))
         }
         self.generation_stats.append(stats)
         
@@ -328,8 +334,6 @@ class MatingEngine:
     def _log_cross(self, parent1: Organism, parent2: Organism, 
                    offspring: DiploidOrganism, model: str) -> None:
         """Log details of a mating cross."""
-        from analysis_tools import calculate_genomic_distance  # Import here to avoid circular import
-        
         distance = calculate_genomic_distance(parent1.genome, parent2.genome)
         self.logger.info(f"[CROSS {model}] P1({parent1.id[:8]}) fit={parent1.fitness:.4f}, "
                         f"P2({parent2.id[:8]}) fit={parent2.fitness:.4f}, "

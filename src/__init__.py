@@ -16,7 +16,7 @@ Main Components:
 - analysis_tools: Statistical analysis and data processing
 - visualization: Publication-quality plotting and visualization
 - config_utils: Configuration management and utilities
-- main_application: Command-line interface and workflow coordination
+- evolutionary_simulation: Command-line interface and workflow coordination
 
 Example Usage:
     # Quick start with default parameters
@@ -27,9 +27,9 @@ Example Usage:
     results = runner.run_complete_simulation(env, num_generations=10, ...)
     
     # Or use the command-line interface
-    python -m evolutionary_simulation.main_application --generations 10 --genome_size 100
+    python evolutionary_simulation.py --generations 10 --genome_size 100
 
-Author: [Your Name]
+Author: Evolutionary Simulation Team
 Version: 1.0.0
 """
 
@@ -44,7 +44,12 @@ from .core_models import (
     Environment,
     Organism,
     DiploidOrganism,
-    OrganismWithMatingType
+    OrganismWithMatingType,
+    
+    # Utility functions
+    calculate_genomic_distance,
+    calculate_diploid_prs,
+    calculate_polygenic_risk_score
 )
 
 from .simulation_engine import (
@@ -56,16 +61,15 @@ from .simulation_engine import (
 from .analysis_tools import (
     SimulationAnalyzer,
     MultiRunAnalyzer,
-    calculate_genomic_distance,
-    calculate_polygenic_risk_score,
-    calculate_diploid_prs,
+    SimulationDataCollector,
+    GeneticAnalysis,
     calculate_regression_stats,
     save_analysis_results
 )
 
 from .visualization import (
     SimulationVisualizer,
-    MultiRunVisualizer
+    MultiSimulationVisualizer
 )
 
 from .config_utils import (
@@ -86,7 +90,7 @@ from .config_utils import (
     DEFAULT_EXTENSIVE_CONFIG
 )
 
-from .main_application import (
+from .evolutionary_simulation import (
     EvolutionarySimulationApp,
     setup_logging,
     create_output_directory,
@@ -95,8 +99,8 @@ from .main_application import (
 
 # Package metadata
 __version__ = "1.0.0"
-__author__ = "Your Name"
-__email__ = "your.email@example.com"
+__author__ = "Evolutionary Simulation Team"
+__email__ = "evolution.sim@example.com"
 __description__ = "Comprehensive evolutionary simulation with diploid analysis"
 
 # Define what gets imported with "from evolutionary_simulation import *"
@@ -112,6 +116,11 @@ __all__ = [
     "DiploidOrganism",
     "OrganismWithMatingType",
     
+    # Core utility functions
+    "calculate_genomic_distance",
+    "calculate_diploid_prs",
+    "calculate_polygenic_risk_score",
+    
     # Simulation engine
     "EvolutionarySimulation",
     "MatingEngine", 
@@ -120,15 +129,14 @@ __all__ = [
     # Analysis tools
     "SimulationAnalyzer",
     "MultiRunAnalyzer",
-    "calculate_genomic_distance",
-    "calculate_polygenic_risk_score", 
-    "calculate_diploid_prs",
+    "SimulationDataCollector",
+    "GeneticAnalysis",
     "calculate_regression_stats",
     "save_analysis_results",
     
     # Visualization
     "SimulationVisualizer",
-
+    "MultiSimulationVisualizer",
     
     # Configuration and utilities
     "SimulationConfig",
@@ -149,7 +157,12 @@ __all__ = [
     "EvolutionarySimulationApp",
     "setup_logging",
     "create_output_directory",
-    "get_lsf_job_info"
+    "get_lsf_job_info",
+    
+    # Convenience functions
+    "quick_simulation",
+    "create_example_config",
+    "get_package_info"
 ]
 
 
@@ -175,7 +188,7 @@ def quick_simulation(genome_size: int = 100, generations: int = 10,
     Example:
         >>> from evolutionary_simulation import quick_simulation
         >>> results = quick_simulation(genome_size=50, generations=5, num_runs=2)
-        >>> print(f"Final fitness: {results['haploid_evolution']['final_fitness']['mean']:.3f}")
+        >>> print(f"Final fitness: {results['haploid_evolution']['mean_fitness']['mean']:.3f}")
     """
     import tempfile
     import logging
@@ -283,7 +296,7 @@ def get_package_info() -> dict:
             "analysis_tools": "Statistical analysis and data processing",
             "visualization": "Plotting and visualization tools",
             "config_utils": "Configuration management and utilities",
-            "main_application": "Command-line interface and workflow"
+            "evolutionary_simulation": "Command-line interface and workflow"
         },
         "key_classes": [
             "Environment", "Organism", "DiploidOrganism",
@@ -306,7 +319,7 @@ def main():
     This allows the package to be run as:
     python -m evolutionary_simulation
     """
-    from .main_application import main as app_main
+    from .evolutionary_simulation import main as app_main
     app_main()
 
 

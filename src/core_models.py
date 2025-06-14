@@ -9,7 +9,7 @@ used throughout the simulation.
 import numpy as np
 import uuid
 from enum import Enum
-from typing import Optional, Union, Dict, Any
+from typing import Optional, Union, Dict, Any, List
 import logging
 
 
@@ -138,7 +138,7 @@ class Environment:
     
     def _calculate_sk_fitness(self, genome: np.ndarray) -> float:
         """Calculate fitness using Sherrington-Kirkpatrick model."""
-        return genome @ (self.h + 0.5 * self.J @ genome)
+        return float(genome @ (self.h + 0.5 * self.J @ genome))
     
     def _calculate_alternative_fitness(self, genome: np.ndarray) -> float:
         """Calculate fitness using alternative methods."""
@@ -146,19 +146,18 @@ class Environment:
         
         if method == FitnessMethod.SINGLE_POSITION:
             position = self.alternative_params["position"]
-            favorable_value = self.alternative_params["favorable_value"]
-
+            
             if position >= len(genome):
                 return 0.0
             
             # Normalize values from [-1, 1] to [0, 1]
-            return (genome[position] + 1) / 2.0
+            return float((genome[position] + 1) / 2.0)
             
         elif method == FitnessMethod.ADDITIVE:
             weights = self.alternative_params["weights"]
             genome_01 = (genome + 1) / 2  # Convert -1/1 to 0/1
             fitness = np.dot(genome_01, weights)
-            return 0.1 + 0.9 / (1 + np.exp(-fitness))  # Sigmoid normalization
+            return float(0.1 + 0.9 / (1 + np.exp(-fitness)))  # Sigmoid normalization
         
         return 0.5  # Fallback
     
@@ -272,6 +271,17 @@ class Organism:
         
         return child1, child2
     
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert organism to dictionary for serialization."""
+        return {
+            "id": self.id,
+            "generation": self.generation,
+            "fitness": float(self.fitness),
+            "genome": self.genome.tolist(),
+            "parent_id": self.parent_id,
+            "mutation_rate": self.mutation_rate
+        }
+    
     def __repr__(self) -> str:
         return f"Organism(id={self.id[:8]}, gen={self.generation}, fit={self.fitness:.4f})"
 
@@ -311,6 +321,18 @@ class DiploidOrganism:
         self.parent1_fitness = parent1.fitness
         self.parent2_fitness = parent2.fitness
         self.avg_parent_fitness = (parent1.fitness + parent2.fitness) / 2
+        
+        # Calculate additional metrics for analysis
+        self.prs = self.calculate_prs()
+        self.genomic_distance = self.calculate_genomic_distance()
+    
+    def calculate_prs(self) -> float:
+        """Calculate polygenic risk score for this diploid organism."""
+        return float((np.sum(self.allele1) + np.sum(self.allele2)) / 2)
+    
+    def calculate_genomic_distance(self) -> int:
+        """Calculate Hamming distance between the two alleles."""
+        return int(np.sum(self.allele1 != self.allele2))
     
     def _get_effective_genome(self) -> np.ndarray:
         """Get effective genome based on fitness model."""
@@ -359,7 +381,9 @@ class DiploidOrganism:
             "avg_parent_fitness": float(self.avg_parent_fitness),
             "allele1": self.allele1.tolist(),
             "allele2": self.allele2.tolist(),
-            "mating_type": self.mating_type.value if self.mating_type else None
+            "mating_type": self.mating_type.value if self.mating_type else None,
+            "prs": float(self.prs),
+            "genomic_distance": int(self.genomic_distance)
         }
     
     def __repr__(self) -> str:
@@ -373,6 +397,46 @@ class OrganismWithMatingType:
     def __init__(self, organism: Organism, mating_type: MatingType):
         self.organism = organism
         self.mating_type = mating_type
+        
+        # Expose organism attributes for compatibility
+        self.id = organism.id
+        self.generation = organism.generation
+        self.fitness = organism.fitness
+        self.genome = organism.genome
+        self.parent_id = organism.parent_id
     
     def __repr__(self) -> str:
         return f"TypedOrganism({self.organism}, type={self.mating_type.value})"
+
+
+# Utility functions that were causing circular imports
+def calculate_genomic_distance(genome1: np.ndarray, genome2: np.ndarray) -> float:
+    """Calculate Hamming distance between two genomes.
+    
+    Args:
+        genome1: First genome array
+        genome2: Second genome array
+        
+    Returns:
+        Hamming distance between the genomes
+    """
+    return float(np.sum(genome1 != genome2))
+
+
+def calculate_diploid_prs(organism: DiploidOrganism) -> float:
+    """Calculate polygenic risk score for a diploid organism.
+    
+    Args:
+        organism: DiploidOrganism instance
+        
+    Returns:
+        Average PRS of the two haploid genomes
+    """
+    prs1 = np.sum(organism.allele1)
+    prs2 = np.sum(organism.allele2)
+    return float((prs1 + prs2) / 2)
+
+
+def calculate_polygenic_risk_score(genome: np.ndarray) -> float:
+    """Calculate polygenic risk score as sum of genome values."""
+    return float(np.sum(genome))
