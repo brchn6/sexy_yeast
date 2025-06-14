@@ -2,9 +2,11 @@
 """
 Visualization tools for evolutionary simulation results 
 
-This module provides clean, informative visualizations of simulation data,
-including fitness evolution, parent-offspring relationships, and comparative
-analyses across different models.
+This module provides publication-quality visualizations with:
+- Large, clear text suitable for articles
+- 2nd degree polynomial regression lines
+- R² values and FDR-corrected p-values
+- Professional formatting
 """
 
 import matplotlib.pyplot as plt
@@ -16,13 +18,33 @@ from collections import defaultdict
 import logging
 from typing import Dict, List, Optional, Tuple, Any, Union
 import scipy.stats
+from scipy.stats import pearsonr
+from statsmodels.stats.multitest import multipletests
 import warnings
 
 # Suppress matplotlib warnings
 warnings.filterwarnings("ignore", category=UserWarning, module="matplotlib")
 
-# Set up matplotlib for non-interactive use
+# Set up matplotlib for high-quality output
 plt.switch_backend('Agg')
+plt.rcParams.update({
+    'font.size': 16,           # Larger base font
+    'axes.titlesize': 20,      # Bigger titles
+    'axes.labelsize': 18,      # Bigger axis labels
+    'xtick.labelsize': 16,     # Bigger tick labels
+    'ytick.labelsize': 16,     # Bigger tick labels
+    'legend.fontsize': 16,     # Bigger legend
+    'figure.titlesize': 24,    # Bigger figure title
+    'lines.linewidth': 3,      # Thicker lines
+    'lines.markersize': 10,    # Bigger markers
+    'font.weight': 'bold',     # Bold text
+    'axes.labelweight': 'bold',
+    'axes.titleweight': 'bold',
+    'figure.dpi': 300,         # High resolution
+    'savefig.dpi': 300,
+    'font.family': 'sans-serif',
+    'font.sans-serif': ['Arial', 'DejaVu Sans', 'Liberation Sans']
+})
 
 # Import utility functions from core_models to avoid circular imports
 from core_models import calculate_genomic_distance, calculate_diploid_prs
@@ -33,7 +55,7 @@ class SimulationVisualizer:
     Creates publication-quality visualizations of simulation results.
     
     This class handles all plotting functionality with a focus on clarity,
-    aesthetics, and scientific communication.
+    aesthetics, and scientific communication with statistical analysis.
     """
     
     def __init__(self, style: str = "whitegrid", palette: str = "deep"):
@@ -64,6 +86,120 @@ class SimulationVisualizer:
         
         # Set up logging
         self.logger = logging.getLogger(__name__)
+        
+        # Statistics tracking for FDR correction
+        self.p_values = []
+        self.test_names = []
+    
+    def _calculate_polynomial_fit(self, x_data: np.ndarray, y_data: np.ndarray, degree: int = 2) -> Tuple[np.ndarray, float, float]:
+        """
+        Calculate polynomial fit with R² and p-value.
+        
+        Returns:
+            fitted_line: x,y values for the fitted polynomial
+            r_squared: R² value
+            p_value: significance p-value
+        """
+        if len(x_data) < 3 or len(y_data) < 3:
+            return np.array([]), 0.0, 1.0
+        
+        try:
+            # Remove any NaN or infinite values
+            mask = np.isfinite(x_data) & np.isfinite(y_data)
+            x_clean = x_data[mask]
+            y_clean = y_data[mask]
+            
+            if len(x_clean) < 3:
+                return np.array([]), 0.0, 1.0
+            
+            # Fit polynomial
+            coeffs = np.polyfit(x_clean, y_clean, degree)
+            poly_func = np.poly1d(coeffs)
+            
+            # Generate smooth line for plotting
+            x_smooth = np.linspace(np.min(x_clean), np.max(x_clean), 100)
+            y_fitted = poly_func(x_smooth)
+            
+            # Calculate R²
+            y_pred = poly_func(x_clean)
+            ss_res = np.sum((y_clean - y_pred) ** 2)
+            ss_tot = np.sum((y_clean - np.mean(y_clean)) ** 2)
+            r_squared = 1 - (ss_res / ss_tot) if ss_tot != 0 else 0
+            
+            # Calculate p-value using F-test
+            n = len(x_clean)
+            k = degree  # number of parameters (excluding intercept)
+            if n > k + 1:
+                mse_res = ss_res / (n - k - 1)
+                mse_reg = (ss_tot - ss_res) / k
+                if mse_res > 0:
+                    f_stat = mse_reg / mse_res
+                    p_value = 1 - scipy.stats.f.cdf(f_stat, k, n - k - 1)
+                else:
+                    p_value = 0.0
+            else:
+                p_value = 1.0
+            
+            return np.column_stack([x_smooth, y_fitted]), r_squared, p_value
+            
+        except Exception as e:
+            self.logger.debug(f"Polynomial fit failed: {e}")
+            return np.array([]), 0.0, 1.0
+    
+    def _add_regression_line(self, ax, x_data: np.ndarray, y_data: np.ndarray, 
+                           label: str, color: str = 'red') -> Tuple[float, float]:
+        """Add 2nd degree polynomial regression with R² and p-values."""
+        fitted_data, r_squared, p_value = self._calculate_polynomial_fit(x_data, y_data, degree=2)
+        
+        if len(fitted_data) > 0:
+            # Plot the fitted line
+            ax.plot(fitted_data[:, 0], fitted_data[:, 1], '--', 
+                   linewidth=4, alpha=0.9, color=color,
+                   label=f'{label} (R²={r_squared:.3f})')
+            
+            # Store p-value for FDR correction
+            self.p_values.append(p_value)
+            self.test_names.append(f"{label}_fit")
+            
+            # Add text box with statistics
+            if r_squared > 0.01:  # Only show if meaningful relationship
+                if p_value < 0.001:
+                    p_text = 'p < 0.001***'
+                elif p_value < 0.01:
+                    p_text = f'p = {p_value:.3f}**'
+                elif p_value < 0.05:
+                    p_text = f'p = {p_value:.3f}*'
+                else:
+                    p_text = f'p = {p_value:.3f}ns'
+                
+                stats_text = f'R² = {r_squared:.3f}\n{p_text}'
+                
+                # Position text box
+                ax.text(0.05, 0.95, stats_text, transform=ax.transAxes,
+                       bbox=dict(boxstyle="round,pad=0.4", facecolor="white", 
+                                alpha=0.9, edgecolor='black', linewidth=1),
+                       verticalalignment='top', fontsize=14, fontweight='bold')
+        
+        return r_squared, p_value
+    
+    def _apply_fdr_correction(self) -> Dict[str, float]:
+        """Apply FDR correction to all stored p-values."""
+        if not self.p_values:
+            return {}
+        
+        # Apply FDR correction using Benjamini-Hochberg
+        rejected, p_adjusted, _, _ = multipletests(self.p_values, method='fdr_bh')
+        
+        # Create dictionary of corrected p-values
+        fdr_results = {}
+        for i, test_name in enumerate(self.test_names):
+            fdr_results[test_name] = {
+                'p_value': self.p_values[i],
+                'p_adjusted': p_adjusted[i],
+                'significant': rejected[i]
+            }
+        
+        return fdr_results
     
     def _save_figure(self, fig: plt.Figure, output_dir: Path, filename: str) -> None:
         """Save a figure to the specified directory and close it properly."""
@@ -72,17 +208,31 @@ class SimulationVisualizer:
             output_dir.mkdir(parents=True, exist_ok=True)
             
             output_path = output_dir / filename
-            fig.savefig(output_path, dpi=300, bbox_inches='tight')
+            fig.savefig(output_path, dpi=300, bbox_inches='tight',
+                       facecolor='white', edgecolor='none')
             self.logger.debug(f"Saved figure: {output_path}")
         except Exception as e:
-            self.logger.error(f"Failed to save figure {filename}: {e}")
+            self.logger.error(f"Failed to save FDR results: {e}")
+
+    def _save_figure(self, fig: plt.Figure, output_dir: Path, filename: str) -> None:
+        """Save a high-quality figure."""
+        try:
+            output_dir = Path(output_dir)
+            output_dir.mkdir(parents=True, exist_ok=True)
+            
+            output_path = output_dir / filename
+            fig.savefig(output_path, dpi=300, bbox_inches='tight',
+                       facecolor='white', edgecolor='none')
+            self.logger.info(f"Saved multi-run figure: {output_path}")
+        except Exception as e:
+            self.logger.error(f"Failed to save multi-run figure {filename}: {e}")
         finally:
-            plt.close(fig)  # Always close the figure to prevent memory leaks
+            plt.close(fig)  # Always close the figure to prevent memory leaks figure {filename}: {e}")
     
     def plot_fitness_evolution(self, simulation, output_path: Path,
                              filename: str = "fitness_evolution.png") -> None:
         """Plot fitness evolution over generations with individual trajectories and statistics."""
-        fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 10))
+        fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(14, 12))
         
         try:
             # Plot 1: Individual trajectories with statistical overlays
@@ -92,7 +242,7 @@ class SimulationVisualizer:
             # Plot 2: Fitness distribution over time (sampled generations)
             self._plot_fitness_distributions(ax2, simulation)
             
-            plt.tight_layout()
+            plt.tight_layout(pad=3.0)
             self._save_figure(fig, output_path, filename)
         except Exception as e:
             self.logger.error(f"Failed to plot fitness evolution: {e}")
@@ -119,7 +269,7 @@ class SimulationVisualizer:
             return
         
         # Create the visualization
-        fig, ax = plt.subplots(figsize=(16, 10))
+        fig, ax = plt.subplots(figsize=(18, 12))
         
         try:
             # Choose layout based on type
@@ -245,42 +395,46 @@ class SimulationVisualizer:
                 arrows=True,
                 edge_color=self.tree_colors["edges"],
                 alpha=0.4,
-                arrowsize=15,
-                width=0.8,
+                arrowsize=20,
+                width=1.2,
                 arrowstyle='->'
             )
         
         # Draw nodes
         nodes = nx.draw_networkx_nodes(
             graph, pos, ax=ax,
-            node_size=50,
+            node_size=80,
             node_color=fitness_values,
             cmap=plt.cm.get_cmap(self.tree_colors["nodes"]),
             alpha=0.8,
             edgecolors='white',
-            linewidths=0.5
+            linewidths=1
         )
         
         # Add colorbar for fitness
         if nodes:
             cbar = plt.colorbar(nodes, ax=ax, shrink=0.8, pad=0.02)
-            cbar.set_label('Fitness', fontsize=12, labelpad=15)
-            cbar.ax.tick_params(labelsize=10)
+            cbar.set_label('Fitness', fontsize=16, labelpad=20, fontweight='bold')
+            cbar.ax.tick_params(labelsize=14)
     
     def _style_tree_plot(self, ax, num_organisms: int) -> None:
         """Apply consistent styling to the tree plot."""
-        ax.set_xlabel('Generation', fontsize=14, fontweight='bold')
-        ax.set_ylabel('Fitness', fontsize=14, fontweight='bold')
+        ax.set_xlabel('Generation', fontsize=18, fontweight='bold', labelpad=15)
+        ax.set_ylabel('Fitness', fontsize=18, fontweight='bold', labelpad=15)
         ax.set_title(f'Evolutionary Relationship Tree\n({num_organisms:,} organisms)', 
-                    fontsize=16, fontweight='bold', pad=20)
+                    fontsize=20, fontweight='bold', pad=25)
         
         # Style the axes
-        ax.tick_params(labelsize=12)
-        ax.grid(True, alpha=0.3, linestyle='--')
+        ax.tick_params(labelsize=16, width=2, length=8)
+        ax.grid(True, alpha=0.3, linestyle='--', linewidth=1.5)
         ax.set_facecolor(self.tree_colors["background"])
         
         # Add some padding around the plot
         ax.margins(0.05)
+        
+        # Thicker axis lines
+        for spine in ax.spines.values():
+            spine.set_linewidth(2)
     
     def _plot_individual_trajectories(self, ax, simulation) -> None:
         """Plot individual organism fitness trajectories."""
@@ -288,12 +442,17 @@ class SimulationVisualizer:
             for org_id, fitness_data in simulation.individual_fitness.items():
                 if fitness_data:
                     generations, fitness = zip(*fitness_data)
-                    ax.plot(generations, fitness, '-', alpha=0.15, linewidth=0.8, color='lightblue')
+                    ax.plot(generations, fitness, '-', alpha=0.2, linewidth=1.5, color='lightblue')
         
-        ax.set_xlabel('Generation', fontsize=12)
-        ax.set_ylabel('Fitness', fontsize=12)
-        ax.set_title('Individual Fitness Trajectories', fontsize=14, pad=20)
-        ax.grid(True, alpha=0.3)
+        ax.set_xlabel('Generation', fontsize=18, fontweight='bold', labelpad=15)
+        ax.set_ylabel('Fitness', fontsize=18, fontweight='bold', labelpad=15)
+        ax.set_title('Individual Fitness Trajectories', fontsize=20, fontweight='bold', pad=25)
+        ax.grid(True, alpha=0.3, linewidth=1.5)
+        ax.tick_params(labelsize=16, width=2, length=8)
+        
+        # Thicker axis lines
+        for spine in ax.spines.values():
+            spine.set_linewidth(2)
     
     def _add_statistical_overlays(self, ax, simulation) -> None:
         """Add mean, max, and min fitness lines to the plot."""
@@ -304,11 +463,12 @@ class SimulationVisualizer:
             max_fitness = [s['max_fitness'] for s in stats]
             min_fitness = [s['min_fitness'] for s in stats]
             
-            ax.plot(generations, avg_fitness, 'k-', linewidth=3, label='Average', zorder=10)
-            ax.plot(generations, max_fitness, 'g-', linewidth=2, label='Maximum', zorder=9)
-            ax.plot(generations, min_fitness, 'r-', linewidth=2, label='Minimum', zorder=9)
+            ax.plot(generations, avg_fitness, 'k-', linewidth=4, label='Average', zorder=10)
+            ax.plot(generations, max_fitness, 'g-', linewidth=3, label='Maximum', zorder=9)
+            ax.plot(generations, min_fitness, 'r-', linewidth=3, label='Minimum', zorder=9)
             
-            ax.legend(frameon=True, fancybox=True, shadow=True)
+            ax.legend(frameon=True, fancybox=True, shadow=True, fontsize=16, 
+                     loc='best', framealpha=0.9)
     
     def _plot_fitness_distributions(self, ax, simulation) -> None:
         """Plot fitness distributions for sampled generations."""
@@ -332,18 +492,25 @@ class SimulationVisualizer:
                     gen_labels.append(str(gen))
         
         if fitness_data:
-            bp = ax.boxplot(fitness_data, labels=gen_labels, patch_artist=True)
+            bp = ax.boxplot(fitness_data, labels=gen_labels, patch_artist=True,
+                           widths=0.8, medianprops=dict(linewidth=3))
             
             # Color the boxes with a gradient
             colors = plt.cm.viridis(np.linspace(0, 1, len(bp['boxes'])))
             for patch, color in zip(bp['boxes'], colors):
                 patch.set_facecolor(color)
-                patch.set_alpha(0.7)
+                patch.set_alpha(0.8)
+                patch.set_linewidth(2)
         
-        ax.set_xlabel('Generation (sampled)', fontsize=12)
-        ax.set_ylabel('Fitness Distribution', fontsize=12)
-        ax.set_title('Fitness Distribution Over Time', fontsize=14, pad=20)
-        ax.grid(True, alpha=0.3)
+        ax.set_xlabel('Generation (sampled)', fontsize=18, fontweight='bold', labelpad=15)
+        ax.set_ylabel('Fitness Distribution', fontsize=18, fontweight='bold', labelpad=15)
+        ax.set_title('Fitness Distribution Over Time', fontsize=20, fontweight='bold', pad=25)
+        ax.grid(True, alpha=0.3, linewidth=1.5)
+        ax.tick_params(labelsize=16, width=2, length=8)
+        
+        # Thicker axis lines
+        for spine in ax.spines.values():
+            spine.set_linewidth(2)
     
     def plot_parent_offspring_relationships(self, data: Union[Dict[str, Any], Dict[str, List]], 
                                           output_dir: Path, mating_strategy: Optional[str] = None) -> None:
@@ -370,11 +537,12 @@ class SimulationVisualizer:
 
     def _plot_individual_run_relationships(self, diploid_offspring: Dict[str, List], 
                                          output_dir: Path, mating_strategy: str) -> None:
-        """Plot relationships for a single run - FIXED VERSION."""
+        """Plot relationships for a single run."""
         try:
             # Create figure with subplots
-            fig, axes = plt.subplots(1, 3, figsize=(18, 6))
-            fig.suptitle(f"Parent-Offspring Relationships ({mating_strategy})", fontsize=16)
+            fig, axes = plt.subplots(1, 3, figsize=(24, 8))
+            fig.suptitle(f"Parent-Offspring Relationships ({mating_strategy})", 
+                        fontsize=24, fontweight='bold', y=0.98)
             
             # Extract data from diploid organisms (objects or dicts)
             extracted_data = self._extract_organism_data(diploid_offspring)
@@ -389,7 +557,7 @@ class SimulationVisualizer:
             self._plot_genomic_distance_vs_offspring_fitness_individual(axes[2], extracted_data)
             
             # Adjust layout and save
-            plt.tight_layout()
+            plt.tight_layout(pad=4.0)
             self._save_figure(fig, output_dir, f"parent_offspring_relationships_{mating_strategy}.png")
             
         except Exception as e:
@@ -444,63 +612,84 @@ class SimulationVisualizer:
 
     def _plot_parent_vs_offspring_fitness_individual(self, ax: plt.Axes, extracted_data: Dict[str, Dict[str, List[float]]]) -> None:
         """Plot parent vs offspring fitness for individual run."""
-        ax.set_title("Parent vs Offspring Fitness")
-        ax.set_xlabel("Average Parent Fitness")
-        ax.set_ylabel("Offspring Fitness")
+        ax.set_title("Parent vs Offspring Fitness", fontsize=20, fontweight='bold', pad=20)
+        ax.set_xlabel("Average Parent Fitness", fontsize=18, fontweight='bold', labelpad=15)
+        ax.set_ylabel("Offspring Fitness", fontsize=18, fontweight='bold', labelpad=15)
         
-        colors = ["#1f77b4", "#ff7f0e", "#2ca02c"]
+        colors = ["#2E86AB", "#A23B72", "#F18F01"]
         for i, (model, color) in enumerate(zip(["dominant", "recessive", "codominant"], colors)):
             if model in extracted_data and extracted_data[model]['parent_fitness']:
-                ax.scatter(
-                    extracted_data[model]['parent_fitness'], 
-                    extracted_data[model]['offspring_fitness'],
-                    label=model.capitalize(), 
-                    color=color, 
-                    alpha=0.7
-                )
+                x_data = np.array(extracted_data[model]['parent_fitness'])
+                y_data = np.array(extracted_data[model]['offspring_fitness'])
+                
+                ax.scatter(x_data, y_data,
+                          label=model.capitalize(), color=color, alpha=0.7, s=80, edgecolors='black', linewidths=1)
+                
+                # Add 2nd degree polynomial fit
+                if len(x_data) > 2:
+                    self._add_regression_line(ax, x_data, y_data, model, color)
         
-        ax.legend()
-        ax.grid(True, alpha=0.3)
+        ax.legend(fontsize=16, frameon=True, shadow=True, framealpha=0.9)
+        ax.grid(True, alpha=0.3, linewidth=1.5)
+        ax.tick_params(labelsize=16, width=2, length=8)
+        
+        # Thicker axis lines
+        for spine in ax.spines.values():
+            spine.set_linewidth(2)
 
     def _plot_prs_vs_offspring_fitness_individual(self, ax: plt.Axes, extracted_data: Dict[str, Dict[str, List[float]]]) -> None:
         """Plot PRS vs offspring fitness for individual run."""
-        ax.set_title("PRS vs Offspring Fitness")
-        ax.set_xlabel("Polygenic Risk Score")
-        ax.set_ylabel("Offspring Fitness")
+        ax.set_title("PRS vs Offspring Fitness", fontsize=20, fontweight='bold', pad=20)
+        ax.set_xlabel("Polygenic Risk Score", fontsize=18, fontweight='bold', labelpad=15)
+        ax.set_ylabel("Offspring Fitness", fontsize=18, fontweight='bold', labelpad=15)
         
-        colors = ["#1f77b4", "#ff7f0e", "#2ca02c"]
+        colors = ["#2E86AB", "#A23B72", "#F18F01"]
         for i, (model, color) in enumerate(zip(["dominant", "recessive", "codominant"], colors)):
             if model in extracted_data and extracted_data[model]['prs_values']:
-                ax.scatter(
-                    extracted_data[model]['prs_values'], 
-                    extracted_data[model]['offspring_fitness'],
-                    label=model.capitalize(), 
-                    color=color, 
-                    alpha=0.7
-                )
+                x_data = np.array(extracted_data[model]['prs_values'])
+                y_data = np.array(extracted_data[model]['offspring_fitness'])
+                
+                ax.scatter(x_data, y_data,
+                          label=model.capitalize(), color=color, alpha=0.7, s=80, edgecolors='black', linewidths=1)
+                
+                # Add 2nd degree polynomial fit
+                if len(x_data) > 2:
+                    self._add_regression_line(ax, x_data, y_data, model, color)
         
-        ax.legend()
-        ax.grid(True, alpha=0.3)
+        ax.legend(fontsize=16, frameon=True, shadow=True, framealpha=0.9)
+        ax.grid(True, alpha=0.3, linewidth=1.5)
+        ax.tick_params(labelsize=16, width=2, length=8)
+        
+        # Thicker axis lines
+        for spine in ax.spines.values():
+            spine.set_linewidth(2)
 
     def _plot_genomic_distance_vs_offspring_fitness_individual(self, ax: plt.Axes, extracted_data: Dict[str, Dict[str, List[float]]]) -> None:
         """Plot genomic distance vs offspring fitness for individual run."""
-        ax.set_title("Genomic Distance vs Offspring Fitness")
-        ax.set_xlabel("Genomic Distance")
-        ax.set_ylabel("Offspring Fitness")
+        ax.set_title("Genomic Distance vs Offspring Fitness", fontsize=20, fontweight='bold', pad=20)
+        ax.set_xlabel("Genomic Distance", fontsize=18, fontweight='bold', labelpad=15)
+        ax.set_ylabel("Offspring Fitness", fontsize=18, fontweight='bold', labelpad=15)
         
-        colors = ["#1f77b4", "#ff7f0e", "#2ca02c"]
+        colors = ["#2E86AB", "#A23B72", "#F18F01"]
         for i, (model, color) in enumerate(zip(["dominant", "recessive", "codominant"], colors)):
             if model in extracted_data and extracted_data[model]['genomic_distances']:
-                ax.scatter(
-                    extracted_data[model]['genomic_distances'], 
-                    extracted_data[model]['offspring_fitness'],
-                    label=model.capitalize(), 
-                    color=color, 
-                    alpha=0.7
-                )
+                x_data = np.array(extracted_data[model]['genomic_distances'])
+                y_data = np.array(extracted_data[model]['offspring_fitness'])
+                
+                ax.scatter(x_data, y_data,
+                          label=model.capitalize(), color=color, alpha=0.7, s=80, edgecolors='black', linewidths=1)
+                
+                # Add 2nd degree polynomial fit
+                if len(x_data) > 2:
+                    self._add_regression_line(ax, x_data, y_data, model, color)
         
-        ax.legend()
-        ax.grid(True, alpha=0.3)
+        ax.legend(fontsize=16, frameon=True, shadow=True, framealpha=0.9)
+        ax.grid(True, alpha=0.3, linewidth=1.5)
+        ax.tick_params(labelsize=16, width=2, length=8)
+        
+        # Thicker axis lines
+        for spine in ax.spines.values():
+            spine.set_linewidth(2)
 
     def _plot_multi_run_relationships(self, data: Dict[str, Any], output_dir: Path) -> None:
         """Plot relationships for multi-run summary."""
@@ -509,8 +698,9 @@ class SimulationVisualizer:
             self.logger.error("No summary data found for plotting")
             return
         
-        fig, axes = plt.subplots(1, 3, figsize=(18, 6))
-        fig.suptitle("Parent-Offspring Relationships Across Multiple Runs", fontsize=16)
+        fig, axes = plt.subplots(1, 3, figsize=(24, 8))
+        fig.suptitle("Parent-Offspring Relationships Across Multiple Runs", 
+                    fontsize=24, fontweight='bold', y=0.98)
         
         try:
             # Plot parent vs offspring fitness
@@ -523,7 +713,7 @@ class SimulationVisualizer:
             self._plot_genomic_distance_vs_offspring_fitness_summary(axes[2], summary)
             
             # Adjust layout and save
-            plt.tight_layout()
+            plt.tight_layout(pad=4.0)
             self._save_figure(fig, output_dir, "parent_offspring_relationships.png")
         except Exception as e:
             self.logger.error(f"Failed to plot multi-run relationships: {e}")
@@ -531,11 +721,11 @@ class SimulationVisualizer:
     
     def _plot_parent_vs_offspring_fitness_summary(self, ax: plt.Axes, summary: Dict[str, Any]) -> None:
         """Plot parent vs offspring fitness for summary data."""
-        ax.set_title("Parent vs Offspring Fitness")
-        ax.set_xlabel("Parent Fitness")
-        ax.set_ylabel("Offspring Fitness")
+        ax.set_title("Parent vs Offspring Fitness", fontsize=20, fontweight='bold', pad=20)
+        ax.set_xlabel("Parent Fitness", fontsize=18, fontweight='bold', labelpad=15)
+        ax.set_ylabel("Offspring Fitness", fontsize=18, fontweight='bold', labelpad=15)
         
-        colors = ["#1f77b4", "#ff7f0e", "#2ca02c"]
+        colors = ["#2E86AB", "#A23B72", "#F18F01"]
         for model, color in zip(["dominant", "recessive", "codominant"], colors):
             model_data = summary.get("diploid_stats", {}).get(model, {}).get("parent_offspring", {})
             if model_data:
@@ -548,18 +738,24 @@ class SimulationVisualizer:
                     ax.errorbar(x_mean, y_mean, 
                               xerr=x_std, yerr=y_std,
                               label=model.capitalize(), color=color,
-                              fmt='o', alpha=0.7)
+                              fmt='o', alpha=0.8, markersize=12, linewidth=3,
+                              capsize=8, capthick=3)
         
-        ax.legend()
-        ax.grid(True, alpha=0.3)
+        ax.legend(fontsize=16, frameon=True, shadow=True, framealpha=0.9)
+        ax.grid(True, alpha=0.3, linewidth=1.5)
+        ax.tick_params(labelsize=16, width=2, length=8)
+        
+        # Thicker axis lines
+        for spine in ax.spines.values():
+            spine.set_linewidth(2)
     
     def _plot_prs_vs_offspring_fitness_summary(self, ax: plt.Axes, summary: Dict[str, Any]) -> None:
         """Plot PRS vs offspring fitness for summary data."""
-        ax.set_title("PRS vs Offspring Fitness")
-        ax.set_xlabel("Polygenic Risk Score")
-        ax.set_ylabel("Offspring Fitness")
+        ax.set_title("PRS vs Offspring Fitness", fontsize=20, fontweight='bold', pad=20)
+        ax.set_xlabel("Polygenic Risk Score", fontsize=18, fontweight='bold', labelpad=15)
+        ax.set_ylabel("Offspring Fitness", fontsize=18, fontweight='bold', labelpad=15)
         
-        colors = ["#1f77b4", "#ff7f0e", "#2ca02c"]
+        colors = ["#2E86AB", "#A23B72", "#F18F01"]
         for model, color in zip(["dominant", "recessive", "codominant"], colors):
             model_data = summary.get("diploid_stats", {}).get(model, {}).get("prs", {})
             if model_data:
@@ -572,18 +768,24 @@ class SimulationVisualizer:
                     ax.errorbar(x_mean, y_mean, 
                               xerr=x_std, yerr=y_std,
                               label=model.capitalize(), color=color,
-                              fmt='o', alpha=0.7)
+                              fmt='o', alpha=0.8, markersize=12, linewidth=3,
+                              capsize=8, capthick=3)
         
-        ax.legend()
-        ax.grid(True, alpha=0.3)
+        ax.legend(fontsize=16, frameon=True, shadow=True, framealpha=0.9)
+        ax.grid(True, alpha=0.3, linewidth=1.5)
+        ax.tick_params(labelsize=16, width=2, length=8)
+        
+        # Thicker axis lines
+        for spine in ax.spines.values():
+            spine.set_linewidth(2)
     
     def _plot_genomic_distance_vs_offspring_fitness_summary(self, ax: plt.Axes, summary: Dict[str, Any]) -> None:
         """Plot genomic distance vs offspring fitness for summary data."""
-        ax.set_title("Genomic Distance vs Offspring Fitness")
-        ax.set_xlabel("Genomic Distance")
-        ax.set_ylabel("Offspring Fitness")
+        ax.set_title("Genomic Distance vs Offspring Fitness", fontsize=20, fontweight='bold', pad=20)
+        ax.set_xlabel("Genomic Distance", fontsize=18, fontweight='bold', labelpad=15)
+        ax.set_ylabel("Offspring Fitness", fontsize=18, fontweight='bold', labelpad=15)
         
-        colors = ["#1f77b4", "#ff7f0e", "#2ca02c"]
+        colors = ["#2E86AB", "#A23B72", "#F18F01"]
         for model, color in zip(["dominant", "recessive", "codominant"], colors):
             model_data = summary.get("diploid_stats", {}).get(model, {}).get("genomic_distance", {})
             if model_data:
@@ -596,19 +798,26 @@ class SimulationVisualizer:
                     ax.errorbar(x_mean, y_mean, 
                               xerr=x_std, yerr=y_std,
                               label=model.capitalize(), color=color,
-                              fmt='o', alpha=0.7)
+                              fmt='o', alpha=0.8, markersize=12, linewidth=3,
+                              capsize=8, capthick=3)
         
-        ax.legend()
-        ax.grid(True, alpha=0.3)
+        ax.legend(fontsize=16, frameon=True, shadow=True, framealpha=0.9)
+        ax.grid(True, alpha=0.3, linewidth=1.5)
+        ax.tick_params(labelsize=16, width=2, length=8)
+        
+        # Thicker axis lines
+        for spine in ax.spines.values():
+            spine.set_linewidth(2)
     
     def plot_min_max_parent_offspring_fitness(self, diploid_offspring: Dict[str, List],
                                             output_path: Path, mating_strategy: str,
                                             filename_prefix: str = "parent_offspring_fitness") -> None:
-        """Plot min/max parent fitness vs offspring fitness - IMPROVED VERSION."""
+        """Plot min/max parent fitness vs offspring fitness."""
         try:
             # Create figure with subplots
             fig, axes = plt.subplots(1, 3, figsize=(24, 8))
-            fig.suptitle(f"Parent-Offspring Fitness Relationships ({mating_strategy})", fontsize=16)
+            fig.suptitle(f"Parent-Offspring Fitness Relationships ({mating_strategy})", 
+                        fontsize=24, fontweight='bold', y=0.98)
             
             # Extract data first
             extracted_data = self._extract_organism_data(diploid_offspring)
@@ -619,7 +828,7 @@ class SimulationVisualizer:
                     self._plot_single_model_relationship_improved(ax, extracted_data[model], model)
             
             # Adjust layout and save
-            plt.tight_layout()
+            plt.tight_layout(pad=4.0)
             self._save_figure(fig, output_path, f"{filename_prefix}_{mating_strategy}.png")
             
         except Exception as e:
@@ -634,46 +843,42 @@ class SimulationVisualizer:
         
         if len(parent_fitness) == 0:
             ax.text(0.5, 0.5, f'No data for {model}', transform=ax.transAxes, 
-                   ha='center', va='center', fontsize=14)
-            ax.set_title(f"{model.capitalize()} Model")
+                   ha='center', va='center', fontsize=18, fontweight='bold')
+            ax.set_title(f"{model.capitalize()} Model", fontsize=20, fontweight='bold')
             return
         
         # Plot parent vs offspring
+        color = self.model_colors.get(model, "#1f77b4")
         ax.scatter(parent_fitness, offspring_fitness, 
-                  label=f'{model} offspring', color='blue', alpha=0.6)
+                  label=f'{model} offspring', color=color, alpha=0.7, s=80, 
+                  edgecolors='black', linewidths=1)
         
-        # Add regression line if we have enough data
-        if len(parent_fitness) > 1:
-            self._add_regression_line(ax, parent_fitness, offspring_fitness, model)
+        # Add 2nd degree polynomial regression line
+        if len(parent_fitness) > 2:
+            self._add_regression_line(ax, parent_fitness, offspring_fitness, model, color)
         
         # Set labels and title
-        ax.set_xlabel("Parent Fitness")
-        ax.set_ylabel("Offspring Fitness")
-        ax.set_title(f"{model.capitalize()} Model")
+        ax.set_xlabel("Parent Fitness", fontsize=18, fontweight='bold', labelpad=15)
+        ax.set_ylabel("Offspring Fitness", fontsize=18, fontweight='bold', labelpad=15)
+        ax.set_title(f"{model.capitalize()} Model", fontsize=20, fontweight='bold', pad=20)
         
         # Add legend and grid
-        ax.legend()
-        ax.grid(True, alpha=0.3)
-
-    def _add_regression_line(self, ax, x_data: np.ndarray, y_data: np.ndarray, label: str) -> None:
-        """Add regression line to plot."""
-        try:
-            # Linear regression
-            z = np.polyfit(x_data, y_data, 1)
-            p = np.poly1d(z)
-            x_range = np.linspace(min(x_data), max(x_data), 100)
-            ax.plot(x_range, p(x_range), '--', alpha=0.8, 
-                   label=f'{label} trend', color='red')
-        except Exception as e:
-            self.logger.debug(f"Could not add regression line: {e}")
+        ax.legend(fontsize=16, frameon=True, shadow=True, framealpha=0.9)
+        ax.grid(True, alpha=0.3, linewidth=1.5)
+        ax.tick_params(labelsize=16, width=2, length=8)
+        
+        # Thicker axis lines
+        for spine in ax.spines.values():
+            spine.set_linewidth(2)
 
     def plot_genomic_distance_effects(self, diploid_offspring: Dict[str, List], 
                                     output_path: Path, mating_strategy: str) -> None:
-        """Plot effects of genomic distance on offspring fitness - IMPROVED VERSION."""
+        """Plot effects of genomic distance on offspring fitness."""
         try:
             # Create figure with subplots
             fig, axes = plt.subplots(1, 3, figsize=(24, 8))
-            fig.suptitle(f"Genomic Distance Effects ({mating_strategy})", fontsize=16)
+            fig.suptitle(f"Genomic Distance Effects ({mating_strategy})", 
+                        fontsize=24, fontweight='bold', y=0.98)
             
             # Extract data first
             extracted_data = self._extract_organism_data(diploid_offspring)
@@ -685,28 +890,35 @@ class SimulationVisualizer:
                     fitness_values = np.array(extracted_data[model]['offspring_fitness'])
                     
                     # Plot scatter
+                    color = self.model_colors.get(model, f"C{i}")
                     ax.scatter(distances, fitness_values, 
-                             label=model.capitalize(), color=f"C{i}", alpha=0.6)
+                             label=model.capitalize(), color=color, alpha=0.7, s=80,
+                             edgecolors='black', linewidths=1)
                     
-                    # Add regression lines
-                    if len(distances) > 1:
-                        self._add_regression_line(ax, distances, fitness_values, model)
+                    # Add 2nd degree polynomial regression lines
+                    if len(distances) > 2:
+                        self._add_regression_line(ax, distances, fitness_values, model, color)
                     
                     # Set labels and title
-                    ax.set_xlabel("Genomic Distance")
-                    ax.set_ylabel("Offspring Fitness")
-                    ax.set_title(f"{model.capitalize()} Model")
+                    ax.set_xlabel("Genomic Distance", fontsize=18, fontweight='bold', labelpad=15)
+                    ax.set_ylabel("Offspring Fitness", fontsize=18, fontweight='bold', labelpad=15)
+                    ax.set_title(f"{model.capitalize()} Model", fontsize=20, fontweight='bold', pad=20)
                     
                     # Add grid
-                    ax.grid(True, alpha=0.3)
-                    ax.legend()
+                    ax.grid(True, alpha=0.3, linewidth=1.5)
+                    ax.legend(fontsize=16, frameon=True, shadow=True, framealpha=0.9)
+                    ax.tick_params(labelsize=16, width=2, length=8)
+                    
+                    # Thicker axis lines
+                    for spine in ax.spines.values():
+                        spine.set_linewidth(2)
                 else:
                     ax.text(0.5, 0.5, f'No data for {model}', transform=ax.transAxes, 
-                           ha='center', va='center', fontsize=14)
-                    ax.set_title(f"{model.capitalize()} Model")
+                           ha='center', va='center', fontsize=18, fontweight='bold')
+                    ax.set_title(f"{model.capitalize()} Model", fontsize=20, fontweight='bold')
             
             # Adjust layout and save
-            plt.tight_layout()
+            plt.tight_layout(pad=4.0)
             self._save_figure(fig, output_path, f"genomic_distance_effects_{mating_strategy}.png")
             
         except Exception as e:
@@ -716,11 +928,12 @@ class SimulationVisualizer:
 
     def plot_prs_analysis(self, diploid_offspring: Dict[str, List], 
                          output_path: Path, mating_strategy: str) -> None:
-        """Plot PRS analysis - IMPROVED VERSION."""
+        """Plot PRS analysis."""
         try:
             # Create figure with subplots
             fig, axes = plt.subplots(1, 3, figsize=(24, 8))
-            fig.suptitle(f"PRS Analysis ({mating_strategy})", fontsize=16)
+            fig.suptitle(f"PRS Analysis ({mating_strategy})", 
+                        fontsize=24, fontweight='bold', y=0.98)
             
             # Extract data first
             extracted_data = self._extract_organism_data(diploid_offspring)
@@ -732,28 +945,35 @@ class SimulationVisualizer:
                     fitness_values = np.array(extracted_data[model]['offspring_fitness'])
                     
                     # Plot scatter
+                    color = self.model_colors.get(model, f"C{i}")
                     ax.scatter(prs_values, fitness_values, 
-                             label=model.capitalize(), color=f"C{i}", alpha=0.6)
+                             label=model.capitalize(), color=color, alpha=0.7, s=80,
+                             edgecolors='black', linewidths=1)
                     
-                    # Add regression lines
-                    if len(prs_values) > 1:
-                        self._add_regression_line(ax, prs_values, fitness_values, model)
+                    # Add 2nd degree polynomial regression lines
+                    if len(prs_values) > 2:
+                        self._add_regression_line(ax, prs_values, fitness_values, model, color)
                     
                     # Set labels and title
-                    ax.set_xlabel("Polygenic Risk Score")
-                    ax.set_ylabel("Offspring Fitness")
-                    ax.set_title(f"{model.capitalize()} Model")
+                    ax.set_xlabel("Polygenic Risk Score", fontsize=18, fontweight='bold', labelpad=15)
+                    ax.set_ylabel("Offspring Fitness", fontsize=18, fontweight='bold', labelpad=15)
+                    ax.set_title(f"{model.capitalize()} Model", fontsize=20, fontweight='bold', pad=20)
                     
                     # Add grid
-                    ax.grid(True, alpha=0.3)
-                    ax.legend()
+                    ax.grid(True, alpha=0.3, linewidth=1.5)
+                    ax.legend(fontsize=16, frameon=True, shadow=True, framealpha=0.9)
+                    ax.tick_params(labelsize=16, width=2, length=8)
+                    
+                    # Thicker axis lines
+                    for spine in ax.spines.values():
+                        spine.set_linewidth(2)
                 else:
                     ax.text(0.5, 0.5, f'No data for {model}', transform=ax.transAxes, 
-                           ha='center', va='center', fontsize=14)
-                    ax.set_title(f"{model.capitalize()} Model")
+                           ha='center', va='center', fontsize=18, fontweight='bold')
+                    ax.set_title(f"{model.capitalize()} Model", fontsize=20, fontweight='bold')
             
             # Adjust layout and save
-            plt.tight_layout()
+            plt.tight_layout(pad=4.0)
             self._save_figure(fig, output_path, f"prs_analysis_{mating_strategy}.png")
             
         except Exception as e:
@@ -762,11 +982,12 @@ class SimulationVisualizer:
                 plt.close(fig)
 
     def plot_fitness_heatmap(self, diploid_offspring: Dict[str, List], output_path: Path) -> None:
-        """Plot parent1 vs parent2 fitness heatmap with offspring intensity - COMPLETELY NEW VERSION."""
+        """Plot parent1 vs parent2 fitness heatmap with offspring intensity."""
         try:
             # Create figure with subplots for each model
-            fig, axes = plt.subplots(1, 3, figsize=(20, 6))
-            fig.suptitle('Parent Fitness Heatmaps by Model\n(Color = Number of Offspring)', fontsize=16)
+            fig, axes = plt.subplots(1, 3, figsize=(24, 8))
+            fig.suptitle('Parent Fitness Heatmaps by Model\n(Color = Number of Offspring)', 
+                        fontsize=24, fontweight='bold', y=0.98)
             
             models = ["dominant", "recessive", "codominant"]
             
@@ -808,14 +1029,14 @@ class SimulationVisualizer:
                                                           offspring_fitness, model)
                     else:
                         ax.text(0.5, 0.5, f'No data for {model}', transform=ax.transAxes, 
-                               ha='center', va='center', fontsize=14)
-                        ax.set_title(f"{model.capitalize()} Model")
+                               ha='center', va='center', fontsize=18, fontweight='bold')
+                        ax.set_title(f"{model.capitalize()} Model", fontsize=20, fontweight='bold')
                 else:
                     ax.text(0.5, 0.5, f'No data for {model}', transform=ax.transAxes, 
-                           ha='center', va='center', fontsize=14)
-                    ax.set_title(f"{model.capitalize()} Model")
+                           ha='center', va='center', fontsize=18, fontweight='bold')
+                    ax.set_title(f"{model.capitalize()} Model", fontsize=20, fontweight='bold')
             
-            plt.tight_layout()
+            plt.tight_layout(pad=4.0)
             self._save_figure(fig, output_path, "fitness_heatmap.png")
             
         except Exception as e:
@@ -844,24 +1065,63 @@ class SimulationVisualizer:
             
             # Add colorbar
             cbar = plt.colorbar(im, ax=ax, shrink=0.8)
-            cbar.set_label('Number of Offspring', fontsize=10)
+            cbar.set_label('Number of Offspring', fontsize=16, fontweight='bold', labelpad=20)
+            cbar.ax.tick_params(labelsize=14)
             
             # Set labels and title
-            ax.set_xlabel('Parent 1 Fitness', fontsize=12)
-            ax.set_ylabel('Parent 2 Fitness', fontsize=12)
-            ax.set_title(f'{model.capitalize()} Model', fontsize=14)
+            ax.set_xlabel('Parent 1 Fitness', fontsize=18, fontweight='bold', labelpad=15)
+            ax.set_ylabel('Parent 2 Fitness', fontsize=18, fontweight='bold', labelpad=15)
+            ax.set_title(f'{model.capitalize()} Model', fontsize=20, fontweight='bold', pad=20)
             
             # Add grid
-            ax.grid(True, alpha=0.3)
+            ax.grid(True, alpha=0.3, linewidth=1.5)
+            ax.tick_params(labelsize=16, width=2, length=8)
+            
+            # Thicker axis lines
+            for spine in ax.spines.values():
+                spine.set_linewidth(2)
             
         except Exception as e:
             self.logger.error(f"Failed to create heatmap for {model}: {e}")
             ax.text(0.5, 0.5, f'Heatmap failed for {model}', transform=ax.transAxes, 
-                   ha='center', va='center', fontsize=12)
+                   ha='center', va='center', fontsize=16, fontweight='bold')
+
+    def save_fdr_results(self, output_dir: Path, filename: str = "fdr_correction_results.txt") -> None:
+        """Save FDR correction results to a file."""
+        try:
+            fdr_results = self._apply_fdr_correction()
+            if not fdr_results:
+                self.logger.info("No p-values collected for FDR correction")
+                return
+            
+            output_path = Path(output_dir) / filename
+            with open(output_path, 'w') as f:
+                f.write("FDR Correction Results (Benjamini-Hochberg)\n")
+                f.write("=" * 50 + "\n\n")
+                
+                for test_name, results in fdr_results.items():
+                    f.write(f"Test: {test_name}\n")
+                    f.write(f"  Original p-value: {results['p_value']:.6f}\n")
+                    f.write(f"  FDR-adjusted p-value: {results['p_adjusted']:.6f}\n")
+                    f.write(f"  Significant after FDR: {'Yes' if results['significant'] else 'No'}\n")
+                    f.write("\n")
+                
+                # Summary
+                total_tests = len(fdr_results)
+                significant_tests = sum(1 for r in fdr_results.values() if r['significant'])
+                f.write(f"Summary:\n")
+                f.write(f"  Total tests: {total_tests}\n")
+                f.write(f"  Significant after FDR correction: {significant_tests}\n")
+                f.write(f"  Proportion significant: {significant_tests/total_tests:.3f}\n")
+            
+            self.logger.info(f"FDR results saved to: {output_path}")
+            
+        except Exception as e:
+            self.logger.error(f"Failed to save FDR results: {e}")
 
 
 class MultiSimulationVisualizer:
-    """Creates visualizations comparing results across multiple simulation runs - COMPLETELY FIXED VERSION."""
+    """Creates visualizations comparing results across multiple simulation runs."""
     
     def __init__(self, style: str = "whitegrid", palette: str = "deep"):
         """Initialize the visualizer with aesthetic settings."""
@@ -878,9 +1138,13 @@ class MultiSimulationVisualizer:
         
         # Set up logging
         self.logger = logging.getLogger(__name__)
+        
+        # Statistics tracking for FDR correction
+        self.p_values = []
+        self.test_names = []
 
     def plot_all_analyses(self, data: Dict[str, Any], output_dir: Path) -> None:
-        """Generate all key analysis plots across runs - COMPLETELY FIXED VERSION."""
+        """Generate all key analysis plots across runs."""
         try:
             # Create output directory
             output_dir = Path(output_dir)
@@ -912,6 +1176,9 @@ class MultiSimulationVisualizer:
             self.plot_parent_offspring_fitness_all_runs(extracted_data, output_dir)
             self.plot_model_comparison_summary(extracted_data, output_dir)
             
+            # Save FDR correction results
+            self.save_fdr_results(output_dir)
+            
         except Exception as e:
             self.logger.error(f"Failed to generate analysis plots: {e}")
             import traceback
@@ -941,7 +1208,7 @@ class MultiSimulationVisualizer:
         self.logger.debug("=== END DEBUG ===")
 
     def _extract_all_diploid_data(self, data: Dict[str, Any]) -> Dict[str, Dict[str, List]]:
-        """Extract all diploid offspring data from the complete data structure - FIXED VERSION."""
+        """Extract all diploid offspring data from the complete data structure."""
         model_data = {
             "dominant": {"parent_offspring": [], "prs": [], "genomic_distance": []},
             "recessive": {"parent_offspring": [], "prs": [], "genomic_distance": []},
@@ -1014,18 +1281,18 @@ class MultiSimulationVisualizer:
 
     def _create_no_data_plot(self, output_dir: Path) -> None:
         """Create a plot indicating no data was available."""
-        fig, ax = plt.subplots(figsize=(10, 6))
+        fig, ax = plt.subplots(figsize=(12, 8))
         ax.text(0.5, 0.5, 'No diploid offspring data available for plotting\nCheck data collection and format', 
-               transform=ax.transAxes, ha='center', va='center', fontsize=16, 
-               bbox=dict(boxstyle="round,pad=0.3", facecolor="lightcoral", alpha=0.5))
-        ax.set_title('Multi-Run Analysis - No Data Available', fontsize=18)
+               transform=ax.transAxes, ha='center', va='center', fontsize=20, fontweight='bold',
+               bbox=dict(boxstyle="round,pad=0.5", facecolor="lightcoral", alpha=0.7))
+        ax.set_title('Multi-Run Analysis - No Data Available', fontsize=24, fontweight='bold')
         ax.axis('off')
         self._save_figure(fig, output_dir, "no_data_available.png")
 
     def plot_fitness_evolution_across_runs(self, data: Dict[str, Any], output_dir: Path) -> None:
         """Plot fitness evolution across all runs."""
         try:
-            fig, ax = plt.subplots(figsize=(12, 8))
+            fig, ax = plt.subplots(figsize=(14, 10))
             
             runs = data.get("runs", [])
             if not runs:
@@ -1051,7 +1318,7 @@ class MultiSimulationVisualizer:
                 
                 # Plot individual runs
                 for i, fitness_vals in enumerate(all_fitness_evolution):
-                    ax.plot(range(len(fitness_vals)), fitness_vals, alpha=0.3, color='lightblue')
+                    ax.plot(range(len(fitness_vals)), fitness_vals, alpha=0.3, color='lightblue', linewidth=2)
                 
                 # Plot mean and std (ignoring NaNs)
                 mean_fitness = np.nanmean(fitness_array, axis=0)
@@ -1059,21 +1326,26 @@ class MultiSimulationVisualizer:
                 
                 valid_gens = ~np.isnan(mean_fitness)
                 ax.plot(np.array(generations)[valid_gens], mean_fitness[valid_gens], 
-                       'k-', linewidth=3, label='Mean across runs')
+                       'k-', linewidth=4, label='Mean across runs')
                 ax.fill_between(np.array(generations)[valid_gens], 
                                (mean_fitness - std_fitness)[valid_gens], 
                                (mean_fitness + std_fitness)[valid_gens], 
                                alpha=0.3, color='gray', label='±1 std')
                 
-                ax.set_xlabel('Generation')
-                ax.set_ylabel('Fitness')
-                ax.set_title('Fitness Evolution Across All Runs')
-                ax.legend()
-                ax.grid(True, alpha=0.3)
+                ax.set_xlabel('Generation', fontsize=18, fontweight='bold', labelpad=15)
+                ax.set_ylabel('Fitness', fontsize=18, fontweight='bold', labelpad=15)
+                ax.set_title('Fitness Evolution Across All Runs', fontsize=20, fontweight='bold', pad=20)
+                ax.legend(fontsize=16, frameon=True, shadow=True, framealpha=0.9)
+                ax.grid(True, alpha=0.3, linewidth=1.5)
+                ax.tick_params(labelsize=16, width=2, length=8)
+                
+                # Thicker axis lines
+                for spine in ax.spines.values():
+                    spine.set_linewidth(2)
             else:
                 ax.text(0.5, 0.5, 'No fitness evolution data available', 
-                       transform=ax.transAxes, ha='center', va='center', fontsize=14)
-                ax.set_title('Fitness Evolution - No Data')
+                       transform=ax.transAxes, ha='center', va='center', fontsize=18, fontweight='bold')
+                ax.set_title('Fitness Evolution - No Data', fontsize=20, fontweight='bold')
             
             self._save_figure(fig, output_dir, "fitness_evolution_all_runs.png")
             
@@ -1082,13 +1354,97 @@ class MultiSimulationVisualizer:
             if 'fig' in locals():
                 plt.close(fig)
 
+    def _calculate_polynomial_fit(self, x_data: np.ndarray, y_data: np.ndarray, degree: int = 2) -> Tuple[np.ndarray, float, float]:
+        """Calculate polynomial fit with R² and p-value."""
+        if len(x_data) < 3 or len(y_data) < 3:
+            return np.array([]), 0.0, 1.0
+        
+        try:
+            # Remove any NaN or infinite values
+            mask = np.isfinite(x_data) & np.isfinite(y_data)
+            x_clean = x_data[mask]
+            y_clean = y_data[mask]
+            
+            if len(x_clean) < 3:
+                return np.array([]), 0.0, 1.0
+            
+            # Fit polynomial
+            coeffs = np.polyfit(x_clean, y_clean, degree)
+            poly_func = np.poly1d(coeffs)
+            
+            # Generate smooth line for plotting
+            x_smooth = np.linspace(np.min(x_clean), np.max(x_clean), 100)
+            y_fitted = poly_func(x_smooth)
+            
+            # Calculate R²
+            y_pred = poly_func(x_clean)
+            ss_res = np.sum((y_clean - y_pred) ** 2)
+            ss_tot = np.sum((y_clean - np.mean(y_clean)) ** 2)
+            r_squared = 1 - (ss_res / ss_tot) if ss_tot != 0 else 0
+            
+            # Calculate p-value using F-test
+            n = len(x_clean)
+            k = degree  # number of parameters (excluding intercept)
+            if n > k + 1:
+                mse_res = ss_res / (n - k - 1)
+                mse_reg = (ss_tot - ss_res) / k
+                if mse_res > 0:
+                    f_stat = mse_reg / mse_res
+                    p_value = 1 - scipy.stats.f.cdf(f_stat, k, n - k - 1)
+                else:
+                    p_value = 0.0
+            else:
+                p_value = 1.0
+            
+            return np.column_stack([x_smooth, y_fitted]), r_squared, p_value
+            
+        except Exception as e:
+            self.logger.debug(f"Polynomial fit failed: {e}")
+            return np.array([]), 0.0, 1.0
+
+    def _add_regression_line(self, ax, x_data: np.ndarray, y_data: np.ndarray, 
+                           label: str, color: str = 'red') -> Tuple[float, float]:
+        """Add 2nd degree polynomial regression with R² and p-values."""
+        fitted_data, r_squared, p_value = self._calculate_polynomial_fit(x_data, y_data, degree=2)
+        
+        if len(fitted_data) > 0:
+            # Plot the fitted line
+            ax.plot(fitted_data[:, 0], fitted_data[:, 1], '--', 
+                   linewidth=4, alpha=0.9, color=color,
+                   label=f'{label} (R²={r_squared:.3f})')
+            
+            # Store p-value for FDR correction
+            self.p_values.append(p_value)
+            self.test_names.append(f"{label}_fit")
+            
+            # Add text box with statistics
+            if r_squared > 0.01:  # Only show if meaningful relationship
+                if p_value < 0.001:
+                    p_text = 'p < 0.001***'
+                elif p_value < 0.01:
+                    p_text = f'p = {p_value:.3f}**'
+                elif p_value < 0.05:
+                    p_text = f'p = {p_value:.3f}*'
+                else:
+                    p_text = f'p = {p_value:.3f}ns'
+                
+                stats_text = f'R² = {r_squared:.3f}\n{p_text}'
+                
+                # Position text box
+                ax.text(0.05, 0.95, stats_text, transform=ax.transAxes,
+                       bbox=dict(boxstyle="round,pad=0.4", facecolor="white", 
+                                alpha=0.9, edgecolor='black', linewidth=1),
+                       verticalalignment='top', fontsize=14, fontweight='bold')
+        
+        return r_squared, p_value
+
     def plot_prs_analysis_all_runs(self, model_data: Dict[str, Dict[str, List]], output_dir: Path) -> None:
-        """Plot PRS analysis across all runs - FIXED VERSION."""
+        """Plot PRS analysis across all runs."""
         try:
             fig, axes = plt.subplots(1, 3, figsize=(24, 8))
-            fig.suptitle("PRS Analysis Across All Runs", fontsize=16)
+            fig.suptitle("PRS Analysis Across All Runs", fontsize=24, fontweight='bold', y=0.98)
             
-            colors = ["#1f77b4", "#ff7f0e", "#2ca02c"]
+            colors = ["#2E86AB", "#A23B72", "#F18F01"]
             for i, (model, ax) in enumerate(zip(["dominant", "recessive", "codominant"], axes)):
                 prs_data = model_data[model]["prs"]
                 
@@ -1099,26 +1455,33 @@ class MultiSimulationVisualizer:
                     if prs_values and fitness_values:
                         # Plot scatter
                         ax.scatter(prs_values, fitness_values, 
-                                 label=model.capitalize(), color=colors[i], alpha=0.6)
+                                 label=model.capitalize(), color=colors[i], alpha=0.7, s=80,
+                                 edgecolors='black', linewidths=1)
                         
-                        # Add regression line
-                        if len(prs_values) > 1:
-                            self._add_regression_line(ax, np.array(prs_values), np.array(fitness_values), model)
+                        # Add 2nd degree polynomial regression line
+                        if len(prs_values) > 2:
+                            self._add_regression_line(ax, np.array(prs_values), np.array(fitness_values), model, colors[i])
                     else:
                         ax.text(0.5, 0.5, f'Invalid data for {model}', transform=ax.transAxes, 
-                               ha='center', va='center', fontsize=14)
+                               ha='center', va='center', fontsize=18, fontweight='bold')
                 else:
                     ax.text(0.5, 0.5, f'No data for {model}', transform=ax.transAxes, 
-                           ha='center', va='center', fontsize=14)
+                           ha='center', va='center', fontsize=18, fontweight='bold')
                 
-                ax.set_xlabel("Polygenic Risk Score")
-                ax.set_ylabel("Offspring Fitness")
-                ax.set_title(f"{model.capitalize()} Model")
-                ax.grid(True, alpha=0.3)
+                ax.set_xlabel("Polygenic Risk Score", fontsize=18, fontweight='bold', labelpad=15)
+                ax.set_ylabel("Offspring Fitness", fontsize=18, fontweight='bold', labelpad=15)
+                ax.set_title(f"{model.capitalize()} Model", fontsize=20, fontweight='bold', pad=20)
+                ax.grid(True, alpha=0.3, linewidth=1.5)
+                ax.tick_params(labelsize=16, width=2, length=8)
+                
+                # Thicker axis lines
+                for spine in ax.spines.values():
+                    spine.set_linewidth(2)
+                    
                 if ax.get_children():  # Only add legend if there are plot elements
-                    ax.legend()
+                    ax.legend(fontsize=16, frameon=True, shadow=True, framealpha=0.9)
             
-            plt.tight_layout()
+            plt.tight_layout(pad=4.0)
             self._save_figure(fig, output_dir, "prs_analysis_all_runs.png")
             
         except Exception as e:
@@ -1127,12 +1490,12 @@ class MultiSimulationVisualizer:
                 plt.close(fig)
 
     def plot_genomic_distance_effects_all_runs(self, model_data: Dict[str, Dict[str, List]], output_dir: Path) -> None:
-        """Plot genomic distance effects across all runs - FIXED VERSION."""
+        """Plot genomic distance effects across all runs."""
         try:
             fig, axes = plt.subplots(1, 3, figsize=(24, 8))
-            fig.suptitle("Genomic Distance Effects Across All Runs", fontsize=16)
+            fig.suptitle("Genomic Distance Effects Across All Runs", fontsize=24, fontweight='bold', y=0.98)
             
-            colors = ["#1f77b4", "#ff7f0e", "#2ca02c"]
+            colors = ["#2E86AB", "#A23B72", "#F18F01"]
             for i, (model, ax) in enumerate(zip(["dominant", "recessive", "codominant"], axes)):
                 distance_data = model_data[model]["genomic_distance"]
                 
@@ -1143,26 +1506,33 @@ class MultiSimulationVisualizer:
                     if distances and fitness_values:
                         # Plot scatter
                         ax.scatter(distances, fitness_values, 
-                                 label=model.capitalize(), color=colors[i], alpha=0.6)
+                                 label=model.capitalize(), color=colors[i], alpha=0.7, s=80,
+                                 edgecolors='black', linewidths=1)
                         
-                        # Add regression line
-                        if len(distances) > 1:
-                            self._add_regression_line(ax, np.array(distances), np.array(fitness_values), model)
+                        # Add 2nd degree polynomial regression line
+                        if len(distances) > 2:
+                            self._add_regression_line(ax, np.array(distances), np.array(fitness_values), model, colors[i])
                     else:
                         ax.text(0.5, 0.5, f'Invalid data for {model}', transform=ax.transAxes, 
-                               ha='center', va='center', fontsize=14)
+                               ha='center', va='center', fontsize=18, fontweight='bold')
                 else:
                     ax.text(0.5, 0.5, f'No data for {model}', transform=ax.transAxes, 
-                           ha='center', va='center', fontsize=14)
+                           ha='center', va='center', fontsize=18, fontweight='bold')
                 
-                ax.set_xlabel("Genomic Distance")
-                ax.set_ylabel("Offspring Fitness")
-                ax.set_title(f"{model.capitalize()} Model")
-                ax.grid(True, alpha=0.3)
+                ax.set_xlabel("Genomic Distance", fontsize=18, fontweight='bold', labelpad=15)
+                ax.set_ylabel("Offspring Fitness", fontsize=18, fontweight='bold', labelpad=15)
+                ax.set_title(f"{model.capitalize()} Model", fontsize=20, fontweight='bold', pad=20)
+                ax.grid(True, alpha=0.3, linewidth=1.5)
+                ax.tick_params(labelsize=16, width=2, length=8)
+                
+                # Thicker axis lines
+                for spine in ax.spines.values():
+                    spine.set_linewidth(2)
+                    
                 if ax.get_children():  # Only add legend if there are plot elements
-                    ax.legend()
+                    ax.legend(fontsize=16, frameon=True, shadow=True, framealpha=0.9)
             
-            plt.tight_layout()
+            plt.tight_layout(pad=4.0)
             self._save_figure(fig, output_dir, "genomic_distance_effects_all_runs.png")
             
         except Exception as e:
@@ -1171,12 +1541,12 @@ class MultiSimulationVisualizer:
                 plt.close(fig)
 
     def plot_parent_offspring_fitness_all_runs(self, model_data: Dict[str, Dict[str, List]], output_dir: Path) -> None:
-        """Plot parent-offspring fitness relationships across all runs - FIXED VERSION."""
+        """Plot parent-offspring fitness relationships across all runs."""
         try:
             fig, axes = plt.subplots(1, 3, figsize=(24, 8))
-            fig.suptitle("Parent-Offspring Fitness Relationships Across All Runs", fontsize=16)
+            fig.suptitle("Parent-Offspring Fitness Relationships Across All Runs", fontsize=24, fontweight='bold', y=0.98)
             
-            colors = ["#1f77b4", "#ff7f0e", "#2ca02c"]
+            colors = ["#2E86AB", "#A23B72", "#F18F01"]
             for i, (model, ax) in enumerate(zip(["dominant", "recessive", "codominant"], axes)):
                 parent_offspring_data = model_data[model]["parent_offspring"]
                 
@@ -1187,26 +1557,33 @@ class MultiSimulationVisualizer:
                     if parent_fitness and offspring_fitness:
                         # Plot scatter
                         ax.scatter(parent_fitness, offspring_fitness, 
-                                 label=model.capitalize(), color=colors[i], alpha=0.6)
+                                 label=model.capitalize(), color=colors[i], alpha=0.7, s=80,
+                                 edgecolors='black', linewidths=1)
                         
-                        # Add regression line
-                        if len(parent_fitness) > 1:
-                            self._add_regression_line(ax, np.array(parent_fitness), np.array(offspring_fitness), model)
+                        # Add 2nd degree polynomial regression line
+                        if len(parent_fitness) > 2:
+                            self._add_regression_line(ax, np.array(parent_fitness), np.array(offspring_fitness), model, colors[i])
                     else:
                         ax.text(0.5, 0.5, f'Invalid data for {model}', transform=ax.transAxes, 
-                               ha='center', va='center', fontsize=14)
+                               ha='center', va='center', fontsize=18, fontweight='bold')
                 else:
                     ax.text(0.5, 0.5, f'No data for {model}', transform=ax.transAxes, 
-                           ha='center', va='center', fontsize=14)
+                           ha='center', va='center', fontsize=18, fontweight='bold')
                 
-                ax.set_xlabel("Average Parent Fitness")
-                ax.set_ylabel("Offspring Fitness")
-                ax.set_title(f"{model.capitalize()} Model")
-                ax.grid(True, alpha=0.3)
+                ax.set_xlabel("Average Parent Fitness", fontsize=18, fontweight='bold', labelpad=15)
+                ax.set_ylabel("Offspring Fitness", fontsize=18, fontweight='bold', labelpad=15)
+                ax.set_title(f"{model.capitalize()} Model", fontsize=20, fontweight='bold', pad=20)
+                ax.grid(True, alpha=0.3, linewidth=1.5)
+                ax.tick_params(labelsize=16, width=2, length=8)
+                
+                # Thicker axis lines
+                for spine in ax.spines.values():
+                    spine.set_linewidth(2)
+                    
                 if ax.get_children():  # Only add legend if there are plot elements
-                    ax.legend()
+                    ax.legend(fontsize=16, frameon=True, shadow=True, framealpha=0.9)
             
-            plt.tight_layout()
+            plt.tight_layout(pad=4.0)
             self._save_figure(fig, output_dir, "parent_offspring_fitness_all_runs.png")
             
         except Exception as e:
@@ -1218,11 +1595,11 @@ class MultiSimulationVisualizer:
         """Plot summary comparison of models across runs."""
         try:
             # Calculate summary statistics
-            fig, axes = plt.subplots(2, 2, figsize=(16, 12))
-            fig.suptitle("Model Comparison Summary", fontsize=16)
+            fig, axes = plt.subplots(2, 2, figsize=(20, 16))
+            fig.suptitle("Model Comparison Summary", fontsize=24, fontweight='bold', y=0.98)
             
             models = ["dominant", "recessive", "codominant"]
-            colors = ["#1f77b4", "#ff7f0e", "#2ca02c"]
+            colors = ["#2E86AB", "#A23B72", "#F18F01"]
             
             # Plot 1: Mean offspring fitness by model
             ax = axes[0, 0]
@@ -1240,14 +1617,20 @@ class MultiSimulationVisualizer:
                         valid_models.append(model)
             
             if valid_models:
-                bars = ax.bar(valid_models, mean_fitness, yerr=std_fitness, capsize=5, 
-                             color=[colors[models.index(m)] for m in valid_models], alpha=0.7)
-                ax.set_ylabel("Mean Offspring Fitness")
-                ax.set_title("Mean Offspring Fitness by Model")
-                ax.grid(True, alpha=0.3)
+                bars = ax.bar(valid_models, mean_fitness, yerr=std_fitness, capsize=8, 
+                             color=[colors[models.index(m)] for m in valid_models], alpha=0.8,
+                             linewidth=2, edgecolor='black')
+                ax.set_ylabel("Mean Offspring Fitness", fontsize=18, fontweight='bold', labelpad=15)
+                ax.set_title("Mean Offspring Fitness by Model", fontsize=20, fontweight='bold', pad=20)
+                ax.grid(True, alpha=0.3, linewidth=1.5)
+                ax.tick_params(labelsize=16, width=2, length=8)
+                
+                # Thicker axis lines
+                for spine in ax.spines.values():
+                    spine.set_linewidth(2)
             else:
                 ax.text(0.5, 0.5, 'No data available', transform=ax.transAxes, 
-                       ha='center', va='center', fontsize=14)
+                       ha='center', va='center', fontsize=18, fontweight='bold')
             
             # Plot 2: Fitness improvement distribution
             ax = axes[0, 1]
@@ -1264,16 +1647,23 @@ class MultiSimulationVisualizer:
                         improvement_labels.append(model)
             
             if improvement_data:
-                bp = ax.boxplot(improvement_data, labels=improvement_labels, patch_artist=True)
+                bp = ax.boxplot(improvement_data, labels=improvement_labels, patch_artist=True,
+                               widths=0.8, medianprops=dict(linewidth=3))
                 for patch, model in zip(bp['boxes'], improvement_labels):
                     patch.set_facecolor(colors[models.index(model)])
-                    patch.set_alpha(0.7)
-                ax.set_ylabel("Fitness Improvement")
-                ax.set_title("Fitness Improvement Distribution")
-                ax.grid(True, alpha=0.3)
+                    patch.set_alpha(0.8)
+                    patch.set_linewidth(2)
+                ax.set_ylabel("Fitness Improvement", fontsize=18, fontweight='bold', labelpad=15)
+                ax.set_title("Fitness Improvement Distribution", fontsize=20, fontweight='bold', pad=20)
+                ax.grid(True, alpha=0.3, linewidth=1.5)
+                ax.tick_params(labelsize=16, width=2, length=8)
+                
+                # Thicker axis lines
+                for spine in ax.spines.values():
+                    spine.set_linewidth(2)
             else:
                 ax.text(0.5, 0.5, 'No data available', transform=ax.transAxes, 
-                       ha='center', va='center', fontsize=14)
+                       ha='center', va='center', fontsize=18, fontweight='bold')
             
             # Plot 3: PRS correlation
             ax = axes[1, 0]
@@ -1292,14 +1682,20 @@ class MultiSimulationVisualizer:
             
             if corr_models:
                 bars = ax.bar(corr_models, correlations, 
-                             color=[colors[models.index(m)] for m in corr_models], alpha=0.7)
-                ax.set_ylabel("PRS-Fitness Correlation")
-                ax.set_title("PRS-Fitness Correlation by Model")
-                ax.grid(True, alpha=0.3)
+                             color=[colors[models.index(m)] for m in corr_models], alpha=0.8,
+                             linewidth=2, edgecolor='black')
+                ax.set_ylabel("PRS-Fitness Correlation", fontsize=18, fontweight='bold', labelpad=15)
+                ax.set_title("PRS-Fitness Correlation by Model", fontsize=20, fontweight='bold', pad=20)
+                ax.grid(True, alpha=0.3, linewidth=1.5)
                 ax.set_ylim(-1, 1)
+                ax.tick_params(labelsize=16, width=2, length=8)
+                
+                # Thicker axis lines
+                for spine in ax.spines.values():
+                    spine.set_linewidth(2)
             else:
                 ax.text(0.5, 0.5, 'No correlation data', transform=ax.transAxes, 
-                       ha='center', va='center', fontsize=14)
+                       ha='center', va='center', fontsize=18, fontweight='bold')
             
             # Plot 4: Sample size by model
             ax = axes[1, 1]
@@ -1314,15 +1710,21 @@ class MultiSimulationVisualizer:
             
             if size_models:
                 bars = ax.bar(size_models, sample_sizes, 
-                             color=[colors[models.index(m)] for m in size_models], alpha=0.7)
-                ax.set_ylabel("Number of Offspring")
-                ax.set_title("Sample Size by Model")
-                ax.grid(True, alpha=0.3)
+                             color=[colors[models.index(m)] for m in size_models], alpha=0.8,
+                             linewidth=2, edgecolor='black')
+                ax.set_ylabel("Number of Offspring", fontsize=18, fontweight='bold', labelpad=15)
+                ax.set_title("Sample Size by Model", fontsize=20, fontweight='bold', pad=20)
+                ax.grid(True, alpha=0.3, linewidth=1.5)
+                ax.tick_params(labelsize=16, width=2, length=8)
+                
+                # Thicker axis lines
+                for spine in ax.spines.values():
+                    spine.set_linewidth(2)
             else:
                 ax.text(0.5, 0.5, 'No sample data', transform=ax.transAxes, 
-                       ha='center', va='center', fontsize=14)
+                       ha='center', va='center', fontsize=18, fontweight='bold')
             
-            plt.tight_layout()
+            plt.tight_layout(pad=4.0)
             self._save_figure(fig, output_dir, "model_comparison_summary.png")
             
         except Exception as e:
@@ -1330,29 +1732,54 @@ class MultiSimulationVisualizer:
             if 'fig' in locals():
                 plt.close(fig)
 
-    def _add_regression_line(self, ax, x_data: np.ndarray, y_data: np.ndarray, label: str) -> None:
-        """Add regression line to plot."""
-        try:
-            if len(x_data) > 1 and len(y_data) > 1:
-                # Linear regression
-                z = np.polyfit(x_data, y_data, 1)
-                p = np.poly1d(z)
-                x_range = np.linspace(min(x_data), max(x_data), 100)
-                ax.plot(x_range, p(x_range), '--', alpha=0.8, 
-                       label=f'{label} trend', color='red')
-        except Exception as e:
-            self.logger.debug(f"Could not add regression line: {e}")
+    def _apply_fdr_correction(self) -> Dict[str, float]:
+        """Apply FDR correction to all stored p-values."""
+        if not self.p_values:
+            return {}
+        
+        # Apply FDR correction using Benjamini-Hochberg
+        rejected, p_adjusted, _, _ = multipletests(self.p_values, method='fdr_bh')
+        
+        # Create dictionary of corrected p-values
+        fdr_results = {}
+        for i, test_name in enumerate(self.test_names):
+            fdr_results[test_name] = {
+                'p_value': self.p_values[i],
+                'p_adjusted': p_adjusted[i],
+                'significant': rejected[i]
+            }
+        
+        return fdr_results
 
-    def _save_figure(self, fig: plt.Figure, output_dir: Path, filename: str) -> None:
-        """Save a figure to the specified directory and close it properly."""
+    def save_fdr_results(self, output_dir: Path, filename: str = "fdr_correction_results.txt") -> None:
+        """Save FDR correction results to a file."""
         try:
-            output_dir = Path(output_dir)
-            output_dir.mkdir(parents=True, exist_ok=True)
+            fdr_results = self._apply_fdr_correction()
+            if not fdr_results:
+                self.logger.info("No p-values collected for FDR correction")
+                return
             
-            output_path = output_dir / filename
-            fig.savefig(output_path, dpi=300, bbox_inches='tight')
-            self.logger.info(f"Saved multi-run figure: {output_path}")
+            output_path = Path(output_dir) / filename
+            with open(output_path, 'w') as f:
+                f.write("FDR Correction Results (Benjamini-Hochberg)\n")
+                f.write("=" * 50 + "\n\n")
+                
+                for test_name, results in fdr_results.items():
+                    f.write(f"Test: {test_name}\n")
+                    f.write(f"  Original p-value: {results['p_value']:.6f}\n")
+                    f.write(f"  FDR-adjusted p-value: {results['p_adjusted']:.6f}\n")
+                    f.write(f"  Significant after FDR: {'Yes' if results['significant'] else 'No'}\n")
+                    f.write("\n")
+                
+                # Summary
+                total_tests = len(fdr_results)
+                significant_tests = sum(1 for r in fdr_results.values() if r['significant'])
+                f.write(f"Summary:\n")
+                f.write(f"  Total tests: {total_tests}\n")
+                f.write(f"  Significant after FDR correction: {significant_tests}\n")
+                f.write(f"  Proportion significant: {significant_tests/total_tests:.3f}\n")
+            
+            self.logger.info(f"FDR results saved to: {output_path}")
+            
         except Exception as e:
-            self.logger.error(f"Failed to save multi-run figure {filename}: {e}")
-        finally:
-            plt.close(fig)  # Always close the figure to prevent memory leaks
+            self.logger.error(f"Failed to save FDR results: {e}")
