@@ -1783,3 +1783,14 @@ class MultiSimulationVisualizer:
             
         except Exception as e:
             self.logger.error(f"Failed to save FDR results: {e}")
+
+    def _save_figure(self, fig: plt.Figure, output_dir: Path, filename: str) -> None:
+        """Save a figure to the specified directory with proper error handling."""
+        try:
+            output_path = Path(output_dir) / filename
+            fig.savefig(output_path, bbox_inches='tight', dpi=300)
+            self.logger.info(f"Figure saved to: {output_path}")
+        except Exception as e:
+            self.logger.error(f"Failed to save figure: {e}")
+            if 'fig' in locals():
+                plt.close(fig)
