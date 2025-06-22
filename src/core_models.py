@@ -440,3 +440,189 @@ def calculate_diploid_prs(organism: DiploidOrganism) -> float:
 def calculate_polygenic_risk_score(genome: np.ndarray) -> float:
     """Calculate polygenic risk score as sum of genome values."""
     return float(np.sum(genome))
+
+
+class CrossData:
+    """
+    Stores data for a single cross between two parents.
+    """
+    def __init__(self, 
+                 inheritance_mode: str,
+                 avg_parent_fitness: float,
+                 genomic_distance: int,
+                 combined_prs: float,
+                 offspring_fitness: float,
+                 run_id: int):
+        self.inheritance_mode = inheritance_mode
+        self.avg_parent_fitness = avg_parent_fitness
+        self.genomic_distance = genomic_distance
+        self.combined_prs = combined_prs
+        self.offspring_fitness = offspring_fitness
+        self.run_id = run_id
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert cross data to dictionary format."""
+        return {
+            "inheritance_mode": self.inheritance_mode,
+            "avg_parent_fitness": self.avg_parent_fitness,
+            "genomic_distance": self.genomic_distance,
+            "combined_prs": self.combined_prs,
+            "offspring_fitness": self.offspring_fitness,
+            "run_id": self.run_id
+        }
+
+class CrossDataCollector:
+    """
+    Manages collection and storage of cross data across simulation runs.
+    """
+    def __init__(self):
+        self.crosses: List[CrossData] = []
+        self.current_run_id = 0
+        self.logger = logging.getLogger(__name__)
+        self.logger.info("Initialized CrossDataCollector")
+    
+    def start_new_run(self) -> None:
+        """Start a new simulation run."""
+        self.current_run_id += 1
+        self.logger.info(f"Starting new run {self.current_run_id}")
+        self.logger.info(f"Current crosses count: {len(self.crosses)}")
+    
+    def record_cross(self, 
+                    inheritance_mode: str,
+                    parent1: Organism,
+                    parent2: Organism,
+                    offspring: DiploidOrganism) -> None:
+        """Record data for a single cross."""
+        try:
+            # Validate inputs
+            if not isinstance(inheritance_mode, str):
+                raise ValueError(f"Invalid inheritance_mode type: {type(inheritance_mode)}")
+            if not isinstance(parent1, Organism) or not isinstance(parent2, Organism):
+                raise ValueError(f"Invalid parent types: {type(parent1)}, {type(parent2)}")
+            if not isinstance(offspring, DiploidOrganism):
+                raise ValueError(f"Invalid offspring type: {type(offspring)}")
+            
+            # Calculate values
+            avg_parent_fitness = (parent1.fitness + parent2.fitness) / 2
+            genomic_distance = offspring.calculate_genomic_distance()
+            combined_prs = offspring.calculate_prs()
+            offspring_fitness = offspring.fitness
+            
+            # Validate calculated values
+            if not isinstance(avg_parent_fitness, (int, float)):
+                raise ValueError(f"Invalid avg_parent_fitness type: {type(avg_parent_fitness)}")
+            if not isinstance(genomic_distance, int):
+                raise ValueError(f"Invalid genomic_distance type: {type(genomic_distance)}")
+            if not isinstance(combined_prs, (int, float)):
+                raise ValueError(f"Invalid combined_prs type: {type(combined_prs)}")
+            if not isinstance(offspring_fitness, (int, float)):
+                raise ValueError(f"Invalid offspring_fitness type: {type(offspring_fitness)}")
+            
+            cross_data = CrossData(
+                inheritance_mode=inheritance_mode,
+                avg_parent_fitness=avg_parent_fitness,
+                genomic_distance=genomic_distance,
+                combined_prs=combined_prs,
+                offspring_fitness=offspring_fitness,
+                run_id=self.current_run_id
+            )
+            
+            self.crosses.append(cross_data)
+            self.logger.debug(
+                f"Recorded cross: mode={inheritance_mode}, "
+                f"parent_fitness={avg_parent_fitness:.4f}, "
+                f"offspring_fitness={offspring_fitness:.4f}, "
+                f"genomic_distance={genomic_distance}, "
+                f"prs={combined_prs:.4f}"
+            )
+        except Exception as e:
+            self.logger.error(f"Failed to record cross: {e}")
+            self.logger.error("Error details:", exc_info=True)
+            raise  # Re-raise to handle in calling code
+    
+    def get_data_as_dict(self) -> Dict[str, List[Dict[str, Any]]]:
+        """Get all cross data as a dictionary."""
+        self.logger.info(f"Retrieved {len(self.crosses)} crosses for run {self.current_run_id}")
+        
+        # Validate data before returning
+        for cross in self.crosses:
+            if not isinstance(cross, CrossData):
+                raise ValueError(f"Invalid cross type in collection: {type(cross)}")
+        
+        return {
+            "run_id": self.current_run_id,
+            "crosses": [cross.to_dict() for cross in self.crosses]
+        }
+    
+    def get_data_as_list(self) -> List[Dict[str, Any]]:
+        """Get all cross data as a flat list of dictionaries."""
+        self.logger.info(f"Retrieved {len(self.crosses)} crosses as list")
+        
+        # Validate data before returning
+        for cross in self.crosses:
+            if not isinstance(cross, CrossData):
+                raise ValueError(f"Invalid cross type in collection: {type(cross)}")
+        
+        return [cross.to_dict() for cross in self.crosses]
+    
+    def clear(self) -> None:
+        """Clear all collected data."""
+        self.logger.info("Clearing all collected cross data")
+        self.crosses = []
+        self.current_run_id = 0
+    
+    def validate_data(self) -> bool:
+        """Validate all collected data."""
+        try:
+            self.logger.info("Validating collected data...")
+            
+            # Check if we have any data
+            if not self.crosses:
+                self.logger.warning("No crosses collected")
+                return False
+            
+            # Validate each cross
+            for i, cross in enumerate(self.crosses):
+                if not isinstance(cross, CrossData):
+                    self.logger.error(f"Invalid cross type at index {i}: {type(cross)}")
+                    return False
+                
+                # Validate cross data
+                cross_dict = cross.to_dict()
+                required_fields = [
+                    "inheritance_mode", "avg_parent_fitness", "genomic_distance",
+                    "combined_prs", "offspring_fitness", "run_id"
+                ]
+                
+                for field in required_fields:
+                    if field not in cross_dict:
+                        self.logger.error(f"Missing field '{field}' in cross at index {i}")
+                        return False
+                
+                # Validate field types
+                if not isinstance(cross_dict["inheritance_mode"], str):
+                    self.logger.error(f"Invalid inheritance_mode type in cross {i}")
+                    return False
+                if not isinstance(cross_dict["avg_parent_fitness"], (int, float)):
+                    self.logger.error(f"Invalid avg_parent_fitness type in cross {i}")
+                    return False
+                if not isinstance(cross_dict["genomic_distance"], int):
+                    self.logger.error(f"Invalid genomic_distance type in cross {i}")
+                    return False
+                if not isinstance(cross_dict["combined_prs"], (int, float)):
+                    self.logger.error(f"Invalid combined_prs type in cross {i}")
+                    return False
+                if not isinstance(cross_dict["offspring_fitness"], (int, float)):
+                    self.logger.error(f"Invalid offspring_fitness type in cross {i}")
+                    return False
+                if not isinstance(cross_dict["run_id"], int):
+                    self.logger.error(f"Invalid run_id type in cross {i}")
+                    return False
+            
+            self.logger.info(f"Data validation successful: {len(self.crosses)} valid crosses")
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"Data validation failed: {e}")
+            self.logger.error("Error details:", exc_info=True)
+            return False

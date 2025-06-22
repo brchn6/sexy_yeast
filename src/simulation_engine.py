@@ -18,7 +18,7 @@ import psutil
 
 from core_models import (
     Environment, Organism, DiploidOrganism, OrganismWithMatingType,
-    MatingStrategy, MatingType, FitnessMethod, calculate_genomic_distance
+    MatingStrategy, MatingType, FitnessMethod, calculate_genomic_distance , CrossDataCollector
 )
 
 
@@ -214,114 +214,126 @@ class EvolutionarySimulation:
 
 class MatingEngine:
     """
-    Handles mating strategies and diploid organism creation.
-    
-    This class manages different mating strategies and creates diploid
-    offspring from haploid parents.
+    Handles mating between organisms according to different strategies.
     """
     
     def __init__(self, logger: Optional[logging.Logger] = None):
         """Initialize the mating engine."""
         self.logger = logger or logging.getLogger(__name__)
+        self.data_collector = CrossDataCollector()
+    
+    def start_new_run(self) -> None:
+        """Start a new simulation run."""
+        self.data_collector.start_new_run()
     
     def mate_organisms(self, organisms: List[Organism], 
                       strategy: MatingStrategy,
                       fitness_models: List[str] = None,
                       log_crosses: bool = True) -> Dict[str, List[DiploidOrganism]]:
         """
-        Create diploid offspring using the specified mating strategy.
-        
-        Args:
-            organisms: List of organisms to mate
-            strategy: Mating strategy to use
-            fitness_models: List of fitness models to test
-            log_crosses: Whether to log individual crosses
-            
-        Returns:
-            Dictionary mapping fitness models to lists of diploid offspring
+        Mate organisms according to the specified strategy.
         """
-        if fitness_models is None:
+        if not fitness_models:
             fitness_models = ["dominant", "recessive", "codominant"]
+            
+        offspring_by_model = {model: [] for model in fitness_models}
         
-        # Sort organisms for consistent results
-        sorted_organisms = sorted(organisms, key=lambda x: x.id)
+        # Log mating setup
+        self.logger.info(f"Mating {len(organisms)} organisms using {strategy.value} strategy")
+        self.logger.info(f"Testing inheritance modes: {fitness_models}")
         
         if strategy == MatingStrategy.ONE_TO_ONE:
-            return self._mate_one_to_one(sorted_organisms, fitness_models, log_crosses)
+            self._mate_one_to_one(organisms, fitness_models, log_crosses, offspring_by_model)
         elif strategy == MatingStrategy.ALL_VS_ALL:
-            return self._mate_all_vs_all(sorted_organisms, fitness_models, log_crosses)
+            self._mate_all_vs_all(organisms, fitness_models, log_crosses, offspring_by_model)
         elif strategy == MatingStrategy.MATING_TYPES:
-            return self._mate_by_types(sorted_organisms, fitness_models, log_crosses)
+            self._mate_by_types(organisms, fitness_models, log_crosses, offspring_by_model)
         else:
             raise ValueError(f"Unknown mating strategy: {strategy}")
+        
+        # Validate offspring creation
+        for model, offspring_list in offspring_by_model.items():
+            self.logger.info(f"Created {len(offspring_list)} offspring for model {model}")
+            if not offspring_list:
+                self.logger.warning(f"No offspring created for model {model}")
+        
+        # Validate collected cross data
+        if not self.data_collector.validate_data():
+            self.logger.error("Cross data validation failed")
+            raise ValueError("Invalid cross data collected")
+            
+        return offspring_by_model
     
     def _mate_one_to_one(self, organisms: List[Organism], 
                         fitness_models: List[str],
-                        log_crosses: bool) -> Dict[str, List[DiploidOrganism]]:
-        """Mate organisms in adjacent pairs."""
-        diploid_offspring = defaultdict(list)
-        
-        # Ensure even number of organisms
-        if len(organisms) % 2 != 0:
-            organisms = organisms[:-1]
-            self.logger.info(f"Removed one organism to get even number: {len(organisms)}")
-        
-        for model in fitness_models:
-            for i in range(0, len(organisms), 2):
-                parent1, parent2 = organisms[i], organisms[i + 1]
-                offspring = DiploidOrganism(parent1, parent2, fitness_model=model)
-                diploid_offspring[model].append(offspring)
-                
-                if log_crosses:
-                    self._log_cross(parent1, parent2, offspring, model)
-        
-        return diploid_offspring
+                        log_crosses: bool,
+                        offspring_by_model: Dict[str, List[DiploidOrganism]]) -> None:
+        """Mate organisms one-to-one."""
+        for i in range(0, len(organisms) - 1, 2):
+            parent1, parent2 = organisms[i], organisms[i + 1]
+            self._create_offspring_for_models(parent1, parent2, fitness_models, 
+                                           log_crosses, offspring_by_model)
     
     def _mate_all_vs_all(self, organisms: List[Organism],
                         fitness_models: List[str],
-                        log_crosses: bool) -> Dict[str, List[DiploidOrganism]]:
-        """Mate every organism with every other organism."""
-        diploid_offspring = defaultdict(list)
-        
-        for model in fitness_models:
-            for parent1, parent2 in combinations(organisms, 2):
-                offspring = DiploidOrganism(parent1, parent2, fitness_model=model)
-                diploid_offspring[model].append(offspring)
-                
-                if log_crosses and len(organisms) <= 5:  # Only log for small populations
-                    self._log_cross(parent1, parent2, offspring, model)
-        
-        self.logger.info(f"All-vs-all mating: {len(organisms)} organisms, "
-                        f"{len(list(combinations(organisms, 2)))} crosses per model")
-        return diploid_offspring
+                        log_crosses: bool,
+                        offspring_by_model: Dict[str, List[DiploidOrganism]]) -> None:
+        """Mate all organisms with all other organisms."""
+        for parent1, parent2 in combinations(organisms, 2):
+            self._create_offspring_for_models(parent1, parent2, fitness_models,
+                                           log_crosses, offspring_by_model)
     
     def _mate_by_types(self, organisms: List[Organism],
                       fitness_models: List[str],
-                      log_crosses: bool) -> Dict[str, List[DiploidOrganism]]:
-        """Mate organisms based on assigned mating types."""
-        # Assign mating types
+                      log_crosses: bool,
+                      offspring_by_model: Dict[str, List[DiploidOrganism]]) -> None:
+        """Mate organisms based on mating types."""
         typed_organisms = self._assign_mating_types(organisms)
-        
-        # Separate by type
         type_a = [org for org in typed_organisms if org.mating_type == MatingType.A]
         type_alpha = [org for org in typed_organisms if org.mating_type == MatingType.ALPHA]
         
-        self.logger.info(f"Mating types: {len(type_a)} type A, {len(type_alpha)} type alpha")
-        
-        diploid_offspring = defaultdict(list)
-        
+        for parent1, parent2 in product(type_a, type_alpha):
+            self._create_offspring_for_models(parent1.organism, parent2.organism,
+                                           fitness_models, log_crosses, offspring_by_model)
+    
+    def _create_offspring_for_models(self, parent1: Organism, parent2: Organism,
+                                   fitness_models: List[str],
+                                   log_crosses: bool,
+                                   offspring_by_model: Dict[str, List[DiploidOrganism]]) -> None:
+        """Create offspring for each inheritance mode."""
         for model in fitness_models:
-            for a_org, alpha_org in product(type_a, type_alpha):
-                offspring = DiploidOrganism(
-                    a_org.organism, alpha_org.organism, 
-                    fitness_model=model, mating_type=None
-                )
-                diploid_offspring[model].append(offspring)
+            try:
+                offspring = DiploidOrganism(parent1, parent2, fitness_model=model)
+                offspring_by_model[model].append(offspring)
                 
-                if log_crosses and len(type_a) <= 5 and len(type_alpha) <= 5:
-                    self._log_cross(a_org.organism, alpha_org.organism, offspring, model)
+                # Record cross data
+                self.data_collector.record_cross(model, parent1, parent2, offspring)
+                
+                if log_crosses:
+                    self._log_cross(parent1, parent2, offspring, model)
+                
+                self.logger.debug(
+                    f"Created offspring: mode={model}, "
+                    f"parent1_fit={parent1.fitness:.4f}, "
+                    f"parent2_fit={parent2.fitness:.4f}, "
+                    f"offspring_fit={offspring.fitness:.4f}"
+                )
+            except Exception as e:
+                self.logger.error(f"Failed to create offspring for model {model}: {e}")
+                self.logger.error("Error details:", exc_info=True)
+    
+    def get_cross_data(self) -> List[Dict[str, Any]]:
+        """Get all collected cross data."""
+        data = self.data_collector.get_data_as_list()
+        self.logger.info(f"Retrieved {len(data)} crosses from data collector")
         
-        return diploid_offspring
+        # Validate data before returning
+        if not data:
+            self.logger.warning("No cross data collected")
+        else:
+            self.logger.info(f"Sample cross data: {data[0]}")
+        
+        return data
     
     def _assign_mating_types(self, organisms: List[Organism]) -> List[OrganismWithMatingType]:
         """Randomly assign mating types to organisms."""
@@ -342,16 +354,12 @@ class MatingEngine:
 
 class SimulationRunner:
     """
-    High-level interface for running complete evolutionary simulations.
-    
-    This class combines the EvolutionarySimulation and MatingEngine to
-    provide a simple interface for running full simulations.
+    Coordinates running complete simulations with different parameters.
     """
     
     def __init__(self, logger: Optional[logging.Logger] = None):
         """Initialize the simulation runner."""
         self.logger = logger or logging.getLogger(__name__)
-        self.simulation = None
         self.mating_engine = MatingEngine(logger)
     
     def run_complete_simulation(self, environment: Environment,
@@ -364,71 +372,76 @@ class SimulationRunner:
                               log_genomes: bool = False,
                               fitness_models: List[str] = None) -> Dict[str, Any]:
         """
-        Run a complete simulation from start to finish.
+        Run a complete simulation with the given parameters.
         
         Args:
-            environment: Environment for the simulation
-            num_generations: Number of generations to run
-            mating_strategy: Strategy for mating organisms
+            environment: The environment for evolution
+            num_generations: Number of generations to simulate
+            mating_strategy: Strategy for organism mating
             initial_fitness: Target fitness for initial organism
             initial_genome_seed: Seed for initial genome
             mutation_seed: Seed for mutations
             max_population_size: Maximum population size
             log_genomes: Whether to log individual genomes
-            fitness_models: Fitness models to test in diploid phase
+            fitness_models: List of inheritance modes to test
             
         Returns:
-            Dictionary containing all simulation results
+            Dictionary containing simulation results and statistics
         """
-        if fitness_models is None:
-            fitness_models = ["dominant", "recessive", "codominant"]
-        
-        self.logger.info("Starting complete simulation")
-        self.logger.info(f"Environment: {environment.get_description()}")
-        self.logger.info(f"Generations: {num_generations}")
-        self.logger.info(f"Mating strategy: {mating_strategy.value}")
+        # Start new run in data collector
+        self.mating_engine.start_new_run()
+        self.logger.info("Started new simulation run")
         
         # Initialize simulation
-        self.simulation = EvolutionarySimulation(environment, self.logger)
-        
-        # Create initial organism
-        initial_organism = self.simulation.create_initial_organism(
+        sim = EvolutionarySimulation(environment, self.logger)
+        initial_org = sim.create_initial_organism(
             target_fitness=initial_fitness,
             initial_genome_seed=initial_genome_seed,
             mutation_seed=mutation_seed
         )
+        sim.initialize_population(initial_org)
         
-        # Initialize population
-        self.simulation.initialize_population(initial_organism)
-        
-        # Run evolution
-        self.simulation.run_generations(
+        # Run generations
+        sim.run_generations(
             num_generations=num_generations,
             max_population_size=max_population_size,
             mutation_seed=mutation_seed,
             log_genomes=log_genomes
         )
         
-        # Get final generation for mating
-        last_generation = self.simulation.get_last_generation()
-        self.logger.info(f"Final generation has {len(last_generation)} organisms")
+        # Get final population and mate organisms
+        final_population = sim.get_last_generation()
+        self.logger.info(f"Final population size: {len(final_population)}")
         
-        # Perform mating
-        diploid_offspring = self.mating_engine.mate_organisms(
-            organisms=last_generation,
+        # Perform mating and collect offspring
+        offspring_by_model = self.mating_engine.mate_organisms(
+            organisms=final_population,
             strategy=mating_strategy,
             fitness_models=fitness_models,
-            log_crosses=len(last_generation) <= 20  # Only log for small populations
+            log_crosses=True
         )
         
-        # Log mating results
-        for model, offspring_list in diploid_offspring.items():
-            self.logger.info(f"{model} model: {len(offspring_list)} diploid offspring")
+        # Get cross data
+        cross_data = self.mating_engine.get_cross_data()
+        self.logger.info(f"Collected {len(cross_data)} crosses")
         
-        return {
-            "simulation": self.simulation,
-            "diploid_offspring": diploid_offspring,
-            "environment": environment,
+        # Validate data before returning
+        if not cross_data:
+            self.logger.error("No cross data collected")
+            raise ValueError("No cross data collected during simulation")
+        
+        # Log sample data
+        self.logger.info(f"Sample cross data: {cross_data[0]}")
+        
+        # Collect results
+        results = {
+            "generation_stats": sim.generation_stats,
+            "individual_fitness": dict(sim.individual_fitness),
+            "cross_data": cross_data,
+            "diploid_offspring": {
+                model: [offspring.to_dict() for offspring in offspring_list]
+                for model, offspring_list in offspring_by_model.items()
+            },
             "parameters": {
                 "num_generations": num_generations,
                 "mating_strategy": mating_strategy.value,
@@ -436,6 +449,19 @@ class SimulationRunner:
                 "genome_size": environment.genome_size,
                 "fitness_method": environment.fitness_method.value,
                 "mutation_seed": mutation_seed,
-                "initial_genome_seed": initial_genome_seed
-            }
+                "initial_genome_seed": initial_genome_seed,
+                "max_population_size": max_population_size
+            },
+            "simulation": sim  # Add the simulation object back
         }
+        
+        # Validate results structure
+        required_keys = ["generation_stats", "individual_fitness", "cross_data", 
+                        "diploid_offspring", "parameters", "simulation"]
+        for key in required_keys:
+            if key not in results:
+                self.logger.error(f"Missing required key in results: {key}")
+                raise ValueError(f"Invalid results structure: missing {key}")
+        
+        self.logger.info("Simulation completed successfully")
+        return results

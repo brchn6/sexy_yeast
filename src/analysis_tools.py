@@ -17,6 +17,7 @@ from typing import List, Dict, Tuple, Optional, Union, Any
 import logging
 from pathlib import Path
 import json
+import os
 
 # Import utility functions from core_models to avoid circular imports
 from core_models import calculate_genomic_distance, calculate_diploid_prs, calculate_polygenic_risk_score
@@ -677,3 +678,172 @@ class GeneticAnalysis:
             # Restore original output directory
             if run_id:
                 self.output_dir = original_output_dir
+
+
+class CrossDataAnalyzer:
+    """
+    Analyzes and visualizes cross data from evolutionary simulations.
+    """
+    
+    def __init__(self, cross_data: List[Dict[str, Any]]):
+        """
+        Initialize the analyzer with cross data.
+        
+        Args:
+            cross_data: List of dictionaries containing cross data
+        """
+        self.df = pd.DataFrame(cross_data)
+    
+    def plot_fitness_vs_parent_fitness(self, output_dir: str) -> None:
+        """Plot offspring fitness vs average parent fitness for each inheritance mode."""
+        plt.figure(figsize=(12, 8))
+        
+        # Scatter plot with regression
+        sns.lmplot(
+            data=self.df,
+            x="avg_parent_fitness",
+            y="offspring_fitness",
+            hue="inheritance_mode",
+            order=2,  # 2nd degree polynomial
+            scatter_kws={"alpha": 0.3},
+            height=8,
+            aspect=1.5
+        )
+        
+        plt.title("Offspring Fitness vs Average Parent Fitness")
+        plt.xlabel("Average Parent Fitness")
+        plt.ylabel("Offspring Fitness")
+        
+        # Save plot
+        os.makedirs(output_dir, exist_ok=True)
+        plt.savefig(os.path.join(output_dir, "fitness_vs_parent_fitness.png"))
+        plt.close()
+    
+    def plot_fitness_vs_genomic_distance(self, output_dir: str) -> None:
+        """Plot offspring fitness vs genomic distance for each inheritance mode."""
+        plt.figure(figsize=(12, 8))
+        
+        # Scatter plot with regression
+        sns.lmplot(
+            data=self.df,
+            x="genomic_distance",
+            y="offspring_fitness",
+            hue="inheritance_mode",
+            order=2,  # 2nd degree polynomial
+            scatter_kws={"alpha": 0.3},
+            height=8,
+            aspect=1.5
+        )
+        
+        plt.title("Offspring Fitness vs Genomic Distance")
+        plt.xlabel("Genomic Distance")
+        plt.ylabel("Offspring Fitness")
+        
+        # Save plot
+        os.makedirs(output_dir, exist_ok=True)
+        plt.savefig(os.path.join(output_dir, "fitness_vs_genomic_distance.png"))
+        plt.close()
+    
+    def plot_fitness_vs_prs(self, output_dir: str) -> None:
+        """Plot offspring fitness vs combined PRS for each inheritance mode."""
+        plt.figure(figsize=(12, 8))
+        
+        # Scatter plot with regression
+        sns.lmplot(
+            data=self.df,
+            x="combined_prs",
+            y="offspring_fitness",
+            hue="inheritance_mode",
+            order=2,  # 2nd degree polynomial
+            scatter_kws={"alpha": 0.3},
+            height=8,
+            aspect=1.5
+        )
+        
+        plt.title("Offspring Fitness vs Combined PRS")
+        plt.xlabel("Combined PRS")
+        plt.ylabel("Offspring Fitness")
+        
+        # Save plot
+        os.makedirs(output_dir, exist_ok=True)
+        plt.savefig(os.path.join(output_dir, "fitness_vs_prs.png"))
+        plt.close()
+    
+    def plot_fitness_distributions(self, output_dir: str) -> None:
+        """Plot fitness distributions for each inheritance mode."""
+        plt.figure(figsize=(12, 8))
+        
+        # Violin plot
+        sns.violinplot(
+            data=self.df,
+            x="inheritance_mode",
+            y="offspring_fitness"
+        )
+        
+        plt.title("Offspring Fitness Distribution by Inheritance Mode")
+        plt.xlabel("Inheritance Mode")
+        plt.ylabel("Offspring Fitness")
+        
+        # Save plot
+        os.makedirs(output_dir, exist_ok=True)
+        plt.savefig(os.path.join(output_dir, "fitness_distributions.png"))
+        plt.close()
+    
+    def calculate_regression_stats(self) -> Dict[str, Dict[str, float]]:
+        """
+        Calculate regression statistics for each inheritance mode.
+        
+        Returns:
+            Dictionary containing R² and p-values for each mode
+        """
+        stats_by_mode = {}
+        
+        for mode in self.df["inheritance_mode"].unique():
+            mode_data = self.df[self.df["inheritance_mode"] == mode]
+            
+            # Fit 2nd degree polynomial
+            x = mode_data["avg_parent_fitness"]
+            y = mode_data["offspring_fitness"]
+            coeffs = np.polyfit(x, y, 2)
+            
+            # Calculate R²
+            y_pred = np.polyval(coeffs, x)
+            r2 = 1 - np.sum((y - y_pred) ** 2) / np.sum((y - np.mean(y)) ** 2)
+            
+            # Calculate p-value using F-test
+            n = len(x)
+            p = 1 - stats.f.cdf(
+                (r2 / 2) / ((1 - r2) / (n - 3)),
+                2,  # degrees of freedom for regression
+                n - 3  # degrees of freedom for residuals
+            )
+            
+            stats_by_mode[mode] = {
+                "r2": r2,
+                "p_value": p
+            }
+        
+        return stats_by_mode
+    
+    def save_analysis_results(self, output_dir: str) -> None:
+        """
+        Save all analysis results to the specified directory.
+        
+        Args:
+            output_dir: Directory to save results
+        """
+        os.makedirs(output_dir, exist_ok=True)
+        
+        # Generate plots
+        self.plot_fitness_vs_parent_fitness(output_dir)
+        self.plot_fitness_vs_genomic_distance(output_dir)
+        self.plot_fitness_vs_prs(output_dir)
+        self.plot_fitness_distributions(output_dir)
+        
+        # Calculate and save statistics
+        stats = self.calculate_regression_stats()
+        with open(os.path.join(output_dir, "regression_stats.json"), "w") as f:
+            json.dump(stats, f, indent=2)
+        
+        # Save raw data
+        self.df.to_csv(os.path.join(output_dir, "cross_data.csv"), index=False)
