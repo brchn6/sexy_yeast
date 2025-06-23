@@ -504,6 +504,7 @@ bsub -q gsla-cpu -R rusage[mem=2GB] \
   --num_runs 1 \
   --output_dir /home/labs/pilpel/barc/sexy_yeast/Results/ \
   --save_individual_runs \
+  --plot_individual_runs \
   --random_seed_env 42 \
   --log_level INFO  
 
@@ -523,15 +524,15 @@ bsub -q gsla-cpu -R rusage[mem=2GB] \
     --log_level INFO  
 
 
-bsub -q gsla-cpu -R rusage[mem=2GB] \
+bsub -q gsla-cpu -R rusage[mem=4GB] \
     /home/labs/pilpel/barc/sexy_yeast/src/evolutionary_simulation.py \
-    --genome_size 4 \
+    --genome_size 40 \
     --generations 8 \
     --mating_strategy all_vs_all \
     --fitness_method sherrington_kirkpatrick \
     --beta 0 \
     --rho 0.25 \
-    --num_runs 1 \
+    --num_runs 10 \
     --output_dir /home/labs/pilpel/barc/sexy_yeast/Results/ \
     --save_individual_runs \
     --plot_individual_runs \
@@ -540,35 +541,28 @@ bsub -q gsla-cpu -R rusage[mem=2GB] \
 
 bsub -q gsla-cpu -R rusage[mem=2GB] \
     /home/labs/pilpel/barc/sexy_yeast/src/evolutionary_simulation.py \
-    --genome_size 2000 \
-    --generations 6 \
+    --genome_size 4000 \
+    --generations 7 \
     --mating_strategy all_vs_all \
     --fitness_method sherrington_kirkpatrick \
-    --beta 0.1 \
+    --beta 0 \
     --rho 0.25 \
-    --num_runs 5 \
+    --num_runs 10 \
     --output_dir /home/labs/pilpel/barc/sexy_yeast/Results/ \
     --save_individual_runs \
-    --plot_individual_runs \
-    --initial_fitness 0 \
     --random_seed_env 42 \
     --log_level INFO  
 
 bsub -q gsla-cpu -R rusage[mem=2GB] \
     /home/labs/pilpel/barc/sexy_yeast/src/evolutionary_simulation.py \
-    --genome_size 40 \
-    --generations 6 \
+    --genome_size 400 \
+    --generations 7 \
     --mating_strategy all_vs_all \
     --fitness_method sherrington_kirkpatrick \
-    --beta 0.0 \
+    --beta 0 \
     --rho 0.25 \
-    --num_runs 3 \
+    --num_runs 10 \
     --output_dir /home/labs/pilpel/barc/sexy_yeast/Results/ \
     --save_individual_runs \
-    --plot_individual_runs \
-    --initial_fitness 0 \
     --random_seed_env 42 \
     --log_level INFO  
-
-
-
