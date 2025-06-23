@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
 """
-Analysis tools for genetic simulation data.
+Analysis tools for genetic simulation data - FIXED VERSION.
 
-This module provides functions for statistical analysis and visualization
-of genetic simulation results, including regression analysis and plotting
-of various genetic metrics.
+This module provides functions for statistical analysis and data collection
+of genetic simulation results, with proper data format handling for visualization.
 """
 
 import numpy as np
@@ -18,88 +17,86 @@ from typing import List, Dict, Tuple, Optional, Union, Any
 import logging
 from pathlib import Path
 import json
+import os
 
 # Import utility functions from core_models to avoid circular imports
 from core_models import calculate_genomic_distance, calculate_diploid_prs, calculate_polygenic_risk_score
 
 
 class SimulationDataCollector:
-    """Collects and manages data from multiple simulation runs."""
+    """Collects and manages data from multiple simulation runs - FIXED VERSION."""
     
     def __init__(self):
         """Initialize the data collector."""
         self.runs_data = []
         self.summary_data = {}
+        self.logger = logging.getLogger(__name__)
     
     def add_run_data(self, run_data: Dict[str, Any]) -> None:
-        """Add data from a single run to the collector.
+        """Add data from a single run to the collector - FIXED VERSION.
         
         Args:
             run_data: Dictionary containing run results and analysis
         """
-        # Convert diploid offspring to the correct format if needed
-        if "diploid_offspring" in run_data:
-            for model in run_data["diploid_offspring"]:
-                if isinstance(run_data["diploid_offspring"][model], list):
-                    # Check if it's already in dict format
-                    if run_data["diploid_offspring"][model] and isinstance(run_data["diploid_offspring"][model][0], dict):
-                        # Already in correct format, convert to analysis format
-                        run_data["diploid_offspring"][model] = self._analyze_diploid_model(
-                            run_data["diploid_offspring"][model]
-                        )
-        
-        self.runs_data.append(run_data)
+        # Deep copy and process the diploid offspring data
+        processed_run_data = self._process_run_data(run_data)
+        self.runs_data.append(processed_run_data)
         self._update_summary()
+        
+        # Debug logging
+        self.logger.debug(f"Added run data. Total runs: {len(self.runs_data)}")
+        if "diploid_offspring" in processed_run_data:
+            for model, organisms in processed_run_data["diploid_offspring"].items():
+                self.logger.debug(f"Run has {len(organisms)} {model} organisms")
     
-    def _analyze_diploid_model(self, organisms: List[Dict[str, Any]]) -> Dict[str, List]:
-        """Analyze statistics for a specific diploid model.
+    def _process_run_data(self, run_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Process run data to ensure proper format for visualization."""
+        processed_data = run_data.copy()
         
-        Args:
-            organisms: List of diploid offspring (as dicts)
+        # Convert diploid offspring to proper dictionary format if needed
+        if "diploid_offspring" in run_data:
+            diploid_offspring = run_data["diploid_offspring"]
+            processed_diploid = {}
             
-        Returns:
-            Dictionary containing lists of parent-offspring relationships,
-            PRS scores, and genomic distances
-        """
-        if not organisms:
-            return {}
-        
-        parent_offspring = []
-        prs = []
-        genomic_distance = []
-        
-        for org in organisms:
-            # Parent-offspring fitness relationship
-            parent_offspring.append((
-                org["avg_parent_fitness"],
-                org["fitness"]
-            ))
-            
-            # PRS analysis
-            if "prs" in org:
-                prs_val = org["prs"]
-            elif "allele1" in org and "allele2" in org:
-                prs_val = (np.sum(org["allele1"]) + np.sum(org["allele2"])) / 2
-            else:
-                prs_val = None
-            
-            prs.append((prs_val, org["fitness"]))
-            
-            # Genomic distance
-            if "genomic_distance" in org:
-                distance = org["genomic_distance"]
-            elif "allele1" in org and "allele2" in org:
-                distance = np.sum(np.array(org["allele1"]) != np.array(org["allele2"]))
-            else:
-                distance = None
+            for model, organisms in diploid_offspring.items():
+                processed_organisms = []
                 
-            genomic_distance.append((distance, org["fitness"]))
+                if isinstance(organisms, list):
+                    for org in organisms:
+                        if hasattr(org, 'to_dict'):
+                            # Object format - convert to dict
+                            org_dict = org.to_dict()
+                        elif isinstance(org, dict):
+                            # Already dict format
+                            org_dict = org.copy()
+                        else:
+                            # Try to extract data manually
+                            try:
+                                org_dict = {
+                                    "fitness": org.calculate_fitness() if hasattr(org, 'calculate_fitness') else 0,
+                                    "parent1_fitness": org.parent1.calculate_fitness() if hasattr(org, 'parent1') else 0,
+                                    "parent2_fitness": org.parent2.calculate_fitness() if hasattr(org, 'parent2') else 0,
+                                    "avg_parent_fitness": ((org.parent1.calculate_fitness() + org.parent2.calculate_fitness()) / 2) if hasattr(org, 'parent1') and hasattr(org, 'parent2') else 0,
+                                    "prs": org.calculate_prs() if hasattr(org, 'calculate_prs') else 0,
+                                    "genomic_distance": org.calculate_genomic_distance() if hasattr(org, 'calculate_genomic_distance') else 0,
+                                    "fitness_model": getattr(org, 'fitness_model', model)
+                                }
+                            except Exception as e:
+                                self.logger.warning(f"Failed to process organism: {e}")
+                                continue
+                        
+                        # Ensure all required fields are present
+                        if "avg_parent_fitness" not in org_dict and "parent1_fitness" in org_dict and "parent2_fitness" in org_dict:
+                            org_dict["avg_parent_fitness"] = (org_dict["parent1_fitness"] + org_dict["parent2_fitness"]) / 2
+                        
+                        processed_organisms.append(org_dict)
+                
+                processed_diploid[model] = processed_organisms
+                self.logger.debug(f"Processed {len(processed_organisms)} {model} organisms")
             
-        return {
-            "parent_offspring": parent_offspring,
-            "prs": prs,
-            "genomic_distance": genomic_distance
-        }
+            processed_data["diploid_offspring"] = processed_diploid
+        
+        return processed_data
     
     def _update_summary(self) -> None:
         """Update summary statistics based on collected runs."""
@@ -121,34 +118,37 @@ class SimulationDataCollector:
             
             # Collect diploid statistics
             if "diploid_offspring" in run:
-                for model, model_data in run["diploid_offspring"].items():
-                    if model in diploid_stats:
-                        # Handle both list of organisms and analyzed data
-                        if isinstance(model_data, list) and model_data:
-                            if isinstance(model_data[0], dict) and "fitness" in model_data[0]:
-                                # List of organism dicts
-                                for org in model_data:
-                                    diploid_stats[model]["parent_offspring"].append([
-                                        org["avg_parent_fitness"],
-                                        org["fitness"]
-                                    ])
-                                    
-                                    if "prs" in org:
-                                        diploid_stats[model]["prs"].append([org["prs"], org["fitness"]])
-                                    
-                                    if "genomic_distance" in org:
-                                        diploid_stats[model]["genomic_distance"].append([org["genomic_distance"], org["fitness"]])
-                        elif isinstance(model_data, dict):
-                            # Analyzed data format
-                            for metric in ["parent_offspring", "prs", "genomic_distance"]:
-                                if metric in model_data:
-                                    diploid_stats[model][metric].extend(model_data[metric])
+                for model, organisms in run["diploid_offspring"].items():
+                    if model in diploid_stats and organisms:
+                        for org in organisms:
+                            try:
+                                # Extract parent-offspring relationships
+                                parent_fit = org.get("avg_parent_fitness", 0)
+                                offspring_fit = org.get("fitness", 0)
+                                diploid_stats[model]["parent_offspring"].append([parent_fit, offspring_fit])
+                                
+                                # Extract PRS relationships
+                                prs_val = org.get("prs", 0)
+                                diploid_stats[model]["prs"].append([prs_val, offspring_fit])
+                                
+                                # Extract genomic distance relationships
+                                genomic_dist = org.get("genomic_distance", 0)
+                                diploid_stats[model]["genomic_distance"].append([genomic_dist, offspring_fit])
+                                
+                            except Exception as e:
+                                self.logger.debug(f"Failed to extract summary data: {e}")
+                                continue
         
         # Calculate summary statistics
         self.summary_data = {
             "fitness_evolution": self._calculate_fitness_summary(fitness_evolution),
             "diploid_stats": self._calculate_diploid_summary(diploid_stats)
         }
+        
+        # Log summary
+        for model in diploid_stats:
+            count = len(diploid_stats[model]["parent_offspring"])
+            self.logger.debug(f"Summary: {count} total data points for {model}")
     
     def _calculate_fitness_summary(self, fitness_data: List[List[float]]) -> Dict[str, Any]:
         """Calculate summary statistics for fitness evolution."""
@@ -156,13 +156,20 @@ class SimulationDataCollector:
             return {}
             
         # Convert to numpy array for easier calculation
-        fitness_array = np.array(fitness_data)
+        max_len = max(len(fd) for fd in fitness_data) if fitness_data else 0
+        if max_len == 0:
+            return {}
+        
+        # Pad shorter sequences with NaN
+        fitness_array = np.full((len(fitness_data), max_len), np.nan)
+        for i, fd in enumerate(fitness_data):
+            fitness_array[i, :len(fd)] = fd
         
         return {
-            "mean": np.mean(fitness_array, axis=0).tolist(),
-            "std": np.std(fitness_array, axis=0).tolist(),
-            "min": np.min(fitness_array, axis=0).tolist(),
-            "max": np.max(fitness_array, axis=0).tolist()
+            "mean": np.nanmean(fitness_array, axis=0).tolist(),
+            "std": np.nanstd(fitness_array, axis=0).tolist(),
+            "min": np.nanmin(fitness_array, axis=0).tolist(),
+            "max": np.nanmax(fitness_array, axis=0).tolist()
         }
     
     def _calculate_diploid_summary(self, diploid_stats: Dict[str, Dict[str, List]]) -> Dict[str, Dict[str, Any]]:
@@ -175,10 +182,10 @@ class SimulationDataCollector:
                 if data:
                     # Convert data to numpy arrays for calculations
                     data_array = np.array(data)
-                    if len(data_array.shape) > 1 and data_array.shape[1] == 2:  # For paired data (e.g., parent-offspring)
+                    if len(data_array.shape) > 1 and data_array.shape[1] == 2:  # For paired data
                         x_data = data_array[:, 0]
                         y_data = data_array[:, 1]
-                        # Filter out None values
+                        # Filter out None/NaN values
                         valid_mask = ~(np.isnan(x_data) | np.isnan(y_data))
                         if np.any(valid_mask):
                             x_valid = x_data[valid_mask]
@@ -187,14 +194,16 @@ class SimulationDataCollector:
                                 "x_mean": float(np.mean(x_valid)),
                                 "x_std": float(np.std(x_valid)) if len(x_valid) > 1 else 0.0,
                                 "y_mean": float(np.mean(y_valid)),
-                                "y_std": float(np.std(y_valid)) if len(y_valid) > 1 else 0.0
+                                "y_std": float(np.std(y_valid)) if len(y_valid) > 1 else 0.0,
+                                "count": int(len(x_valid))
                             }
                     else:  # For single value data
                         valid_data = data_array[~np.isnan(data_array)] if data_array.dtype == float else data_array
                         if len(valid_data) > 0:
                             summary[model][metric] = {
                                 "mean": float(np.mean(valid_data)),
-                                "std": float(np.std(valid_data)) if len(valid_data) > 1 else 0.0
+                                "std": float(np.std(valid_data)) if len(valid_data) > 1 else 0.0,
+                                "count": int(len(valid_data))
                             }
         
         return summary
@@ -212,18 +221,14 @@ class SimulationDataCollector:
 
 
 class SimulationAnalyzer:
-    """Analyzes results from a single simulation run."""
+    """Analyzes results from a single simulation run - IMPROVED VERSION."""
     
     def __init__(self, logger: Optional[logging.Logger] = None):
-        """Initialize the analyzer.
-        
-        Args:
-            logger: Optional logger for tracking analysis progress
-        """
+        """Initialize the analyzer."""
         self.logger = logger or logging.getLogger(__name__)
     
     def analyze_simulation(self, simulation_result: Dict[str, Any]) -> Dict[str, Any]:
-        """Analyze results from a single simulation run.
+        """Analyze results from a single simulation run - IMPROVED VERSION.
         
         Args:
             simulation_result: Dictionary containing simulation results
@@ -252,8 +257,8 @@ class SimulationAnalyzer:
             
         return []
     
-    def _analyze_diploid_offspring(self, simulation_result: Dict[str, Any]) -> Dict[str, Dict[str, List]]:
-        """Analyze diploid offspring statistics."""
+    def _analyze_diploid_offspring(self, simulation_result: Dict[str, Any]) -> Dict[str, Any]:
+        """Analyze diploid offspring statistics - IMPROVED to keep original organisms."""
         if "diploid_offspring" not in simulation_result:
             return {}
             
@@ -263,62 +268,10 @@ class SimulationAnalyzer:
         for model in ["dominant", "recessive", "codominant"]:
             if model in diploid_data:
                 organisms = diploid_data[model]
-                # Convert objects to dicts if needed
-                if organisms and hasattr(organisms[0], 'to_dict'):
-                    organisms = [org.to_dict() for org in organisms]
-                analysis[model] = self._analyze_diploid_model(organisms)
+                # Keep the original organisms for visualization
+                analysis[model] = organisms
         
         return analysis
-    
-    def _analyze_diploid_model(self, organisms: List[Dict[str, Any]]) -> Dict[str, List]:
-        """Analyze statistics for a specific diploid model.
-        
-        Args:
-            organisms: List of diploid offspring (as dicts)
-            
-        Returns:
-            Dictionary containing lists of parent-offspring relationships,
-            PRS scores, and genomic distances
-        """
-        if not organisms:
-            return {}
-        
-        parent_offspring = []
-        prs = []
-        genomic_distance = []
-        
-        for org in organisms:
-            # Parent-offspring fitness relationship
-            parent_offspring.append((
-                org["avg_parent_fitness"],
-                org["fitness"]
-            ))
-            
-            # PRS analysis
-            if "prs" in org:
-                prs_val = org["prs"]
-            elif "allele1" in org and "allele2" in org:
-                prs_val = (np.sum(org["allele1"]) + np.sum(org["allele2"])) / 2
-            else:
-                prs_val = None
-            
-            prs.append((prs_val, org["fitness"]))
-            
-            # Genomic distance
-            if "genomic_distance" in org:
-                distance = org["genomic_distance"]
-            elif "allele1" in org and "allele2" in org:
-                distance = np.sum(np.array(org["allele1"]) != np.array(org["allele2"]))
-            else:
-                distance = None
-                
-            genomic_distance.append((distance, org["fitness"]))
-            
-        return {
-            "parent_offspring": parent_offspring,
-            "prs": prs,
-            "genomic_distance": genomic_distance
-        }
     
     def _analyze_population_stats(self, simulation_result: Dict[str, Any]) -> Dict[str, Any]:
         """Analyze population-level statistics."""
@@ -339,14 +292,10 @@ class SimulationAnalyzer:
 
 
 class MultiRunAnalyzer:
-    """Analyzes results from multiple simulation runs."""
+    """Analyzes results from multiple simulation runs - IMPROVED VERSION."""
     
     def __init__(self, logger: Optional[logging.Logger] = None):
-        """Initialize the analyzer.
-        
-        Args:
-            logger: Optional logger for tracking analysis progress
-        """
+        """Initialize the analyzer."""
         self.logger = logger or logging.getLogger(__name__)
     
     def aggregate_runs(self, all_results: List[Dict[str, Any]]) -> Dict[str, Any]:
@@ -380,23 +329,27 @@ class MultiRunAnalyzer:
         if not fitness_evolution:
             return {}
             
-        # Convert to numpy array for easier calculation
-        fitness_array = np.array(fitness_evolution)
+        # Handle different length sequences
+        max_len = max(len(fe) for fe in fitness_evolution)
+        fitness_array = np.full((len(fitness_evolution), max_len), np.nan)
         
-        # Calculate statistics only if we have data
+        for i, fe in enumerate(fitness_evolution):
+            fitness_array[i, :len(fe)] = fe
+        
         stats = {}
         
         if len(fitness_array) > 0:
-            stats["mean_fitness"] = {
-                "mean": float(np.mean(fitness_array)),
-                "std": float(np.std(fitness_array)) if len(fitness_array) > 1 else 0.0
-            }
-            
-            if len(fitness_array.shape) > 1 and fitness_array.shape[1] > 0:
-                max_fitness = np.max(fitness_array, axis=1)
+            # Calculate final fitness statistics
+            final_fitness = [fe[-1] for fe in fitness_evolution if fe]
+            if final_fitness:
+                stats["mean_fitness"] = {
+                    "mean": float(np.mean(final_fitness)),
+                    "std": float(np.std(final_fitness)) if len(final_fitness) > 1 else 0.0
+                }
+                
                 stats["max_fitness"] = {
-                    "mean": float(np.mean(max_fitness)),
-                    "std": float(np.std(max_fitness)) if len(max_fitness) > 1 else 0.0
+                    "mean": float(np.mean(final_fitness)),  # For final generation
+                    "std": float(np.std(final_fitness)) if len(final_fitness) > 1 else 0.0
                 }
         
         return stats
@@ -415,35 +368,49 @@ class MultiRunAnalyzer:
         """Aggregate statistics for a specific diploid model."""
         all_offspring_fitness = []
         all_fitness_improvement = []
+        all_parent_fitness = []
         
         for result in results:
             if "diploid_offspring" in result and model in result["diploid_offspring"]:
-                model_data = result["diploid_offspring"][model]
-                if "parent_offspring" in model_data and model_data["parent_offspring"]:
-                    for parent_fit, offspring_fit in model_data["parent_offspring"]:
+                organisms = result["diploid_offspring"][model]
+                
+                for org in organisms:
+                    try:
+                        if hasattr(org, 'calculate_fitness'):
+                            # Object format
+                            offspring_fit = org.calculate_fitness()
+                            parent_fit = (org.parent1.calculate_fitness() + org.parent2.calculate_fitness()) / 2
+                        elif isinstance(org, dict):
+                            # Dictionary format
+                            offspring_fit = org.get("fitness", 0)
+                            parent_fit = org.get("avg_parent_fitness", 0)
+                        else:
+                            continue
+                        
                         all_offspring_fitness.append(offspring_fit)
                         all_fitness_improvement.append(offspring_fit - parent_fit)
+                        all_parent_fitness.append(parent_fit)
+                        
+                    except Exception as e:
+                        self.logger.debug(f"Failed to aggregate organism data: {e}")
+                        continue
         
         if not all_offspring_fitness:
             return {}
             
-        # Convert to numpy arrays for calculations
-        offspring_fitness_array = np.array(all_offspring_fitness)
-        fitness_improvement_array = np.array(all_fitness_improvement)
-        
-        # Calculate statistics only if we have data
+        # Calculate statistics
         stats = {}
         
-        if len(offspring_fitness_array) > 0:
+        if all_offspring_fitness:
             stats["avg_offspring_fitness"] = {
-                "mean": float(np.mean(offspring_fitness_array)),
-                "std": float(np.std(offspring_fitness_array)) if len(offspring_fitness_array) > 1 else 0.0
+                "mean": float(np.mean(all_offspring_fitness)),
+                "std": float(np.std(all_offspring_fitness)) if len(all_offspring_fitness) > 1 else 0.0
             }
         
-        if len(fitness_improvement_array) > 0:
+        if all_fitness_improvement:
             stats["fitness_improvement"] = {
-                "mean": float(np.mean(fitness_improvement_array)),
-                "std": float(np.std(fitness_improvement_array)) if len(fitness_improvement_array) > 1 else 0.0
+                "mean": float(np.mean(all_fitness_improvement)),
+                "std": float(np.std(all_fitness_improvement)) if len(all_fitness_improvement) > 1 else 0.0
             }
         
         return stats
@@ -470,31 +437,21 @@ class MultiRunAnalyzer:
         return {
             "population_size": {
                 "mean": float(np.mean(all_sizes)),
-                "std": float(np.std(all_sizes))
+                "std": float(np.std(all_sizes)) if len(all_sizes) > 1 else 0.0
             },
             "fitness_mean": {
                 "mean": float(np.mean(all_fitness_means)),
-                "std": float(np.std(all_fitness_means))
+                "std": float(np.std(all_fitness_means)) if len(all_fitness_means) > 1 else 0.0
             },
             "fitness_std": {
                 "mean": float(np.mean(all_fitness_stds)),
-                "std": float(np.std(all_fitness_stds))
+                "std": float(np.std(all_fitness_stds)) if len(all_fitness_stds) > 1 else 0.0
             }
         }
 
 
 def calculate_regression_stats(x: np.ndarray, y: np.ndarray, degree: int = 1) -> Dict[str, float]:
-    """
-    Calculate regression statistics for x and y data.
-    
-    Args:
-        x: Independent variable
-        y: Dependent variable
-        degree: Polynomial degree
-        
-    Returns:
-        Dictionary containing regression statistics
-    """
+    """Calculate regression statistics for x and y data."""
     try:
         # Reshape x if needed
         x = np.array(x).reshape(-1, 1)
@@ -541,13 +498,7 @@ def calculate_regression_stats(x: np.ndarray, y: np.ndarray, degree: int = 1) ->
 
 
 def save_analysis_results(results: Dict[str, Any], output_dir: Union[str, Path], filename: str) -> None:
-    """Save analysis results to a JSON file.
-    
-    Args:
-        results: Dictionary containing analysis results
-        output_dir: Directory to save the results
-        filename: Name of the output file
-    """
+    """Save analysis results to a JSON file."""
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     
@@ -578,13 +529,7 @@ class GeneticAnalysis:
     """Class for analyzing genetic simulation data."""
     
     def __init__(self, output_dir: Optional[str] = None, logger: Optional[logging.Logger] = None):
-        """
-        Initialize the analysis tools.
-    
-        Args:
-            output_dir: Directory to save plots and analysis results
-            logger: Logger for tracking analysis progress
-        """
+        """Initialize the analysis tools."""
         self.output_dir = Path(output_dir) if output_dir else Path("analysis_output")
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self.logger = logger or logging.getLogger(__name__)
@@ -598,13 +543,7 @@ class GeneticAnalysis:
         return calculate_polygenic_risk_score(genome)
     
     def prepare_cross_data(self, crosses: List[dict]) -> pd.DataFrame:
-        """
-        Prepare data from crosses for analysis.
-        Args:
-            crosses: List of diploid offspring data dictionaries
-        Returns:
-            DataFrame with analysis-ready data
-        """
+        """Prepare data from crosses for analysis."""
         data = []
         for cross in crosses:
             # Calculate metrics
@@ -636,17 +575,7 @@ class GeneticAnalysis:
         return pd.DataFrame(data)
     
     def fit_regression(self, X: np.ndarray, y: np.ndarray, degree: int = 1) -> Tuple[float, float, float, np.ndarray]:
-        """
-        Fit polynomial regression and return statistics.
-        
-        Args:
-            X: Independent variable
-            y: Dependent variable
-            degree: Polynomial degree (1 for linear, 2 for quadratic)
-            
-        Returns:
-            Tuple of (r2_score, coefficients, p_value, predicted_values)
-        """
+        """Fit polynomial regression and return statistics."""
         stats = calculate_regression_stats(X, y, degree)
         
         # Calculate predictions for plotting
@@ -661,17 +590,7 @@ class GeneticAnalysis:
     
     def plot_relationship(self, data: pd.DataFrame, x_col: str, y_col: str, 
                          title: str, filename: str, degree: int = 2) -> None:
-        """
-        Create scatter plot with regression lines.
-        
-        Args:
-            data: DataFrame containing the data
-            x_col: Column name for x-axis
-            y_col: Column name for y-axis
-            title: Plot title
-            filename: Output filename
-            degree: Maximum polynomial degree to fit
-        """
+        """Create scatter plot with regression lines."""
         plt.figure(figsize=(10, 6))
         
         # Create scatter plot
@@ -714,13 +633,7 @@ class GeneticAnalysis:
         plt.close()  # Important: close figure to prevent memory leaks
     
     def analyze_crosses(self, crosses: List[Dict[str, Any]], run_id: Optional[str] = None) -> None:
-        """
-        Perform complete analysis of crosses.
-        
-        Args:
-            crosses: List of diploid offspring data dictionaries
-            run_id: Optional identifier for this run
-        """
+        """Perform complete analysis of crosses."""
         # Prepare data
         data = self.prepare_cross_data(crosses)
         
@@ -765,3 +678,172 @@ class GeneticAnalysis:
             # Restore original output directory
             if run_id:
                 self.output_dir = original_output_dir
+
+
+class CrossDataAnalyzer:
+    """
+    Analyzes and visualizes cross data from evolutionary simulations.
+    """
+    
+    def __init__(self, cross_data: List[Dict[str, Any]]):
+        """
+        Initialize the analyzer with cross data.
+        
+        Args:
+            cross_data: List of dictionaries containing cross data
+        """
+        self.df = pd.DataFrame(cross_data)
+    
+    def plot_fitness_vs_parent_fitness(self, output_dir: str) -> None:
+        """Plot offspring fitness vs average parent fitness for each inheritance mode."""
+        plt.figure(figsize=(12, 8))
+        
+        # Scatter plot with regression
+        sns.lmplot(
+            data=self.df,
+            x="avg_parent_fitness",
+            y="offspring_fitness",
+            hue="inheritance_mode",
+            order=2,  # 2nd degree polynomial
+            scatter_kws={"alpha": 0.3},
+            height=8,
+            aspect=1.5
+        )
+        
+        plt.title("Offspring Fitness vs Average Parent Fitness")
+        plt.xlabel("Average Parent Fitness")
+        plt.ylabel("Offspring Fitness")
+        
+        # Save plot
+        os.makedirs(output_dir, exist_ok=True)
+        plt.savefig(os.path.join(output_dir, "fitness_vs_parent_fitness.png"))
+        plt.close()
+    
+    def plot_fitness_vs_genomic_distance(self, output_dir: str) -> None:
+        """Plot offspring fitness vs genomic distance for each inheritance mode."""
+        plt.figure(figsize=(12, 8))
+        
+        # Scatter plot with regression
+        sns.lmplot(
+            data=self.df,
+            x="genomic_distance",
+            y="offspring_fitness",
+            hue="inheritance_mode",
+            order=2,  # 2nd degree polynomial
+            scatter_kws={"alpha": 0.3},
+            height=8,
+            aspect=1.5
+        )
+        
+        plt.title("Offspring Fitness vs Genomic Distance")
+        plt.xlabel("Genomic Distance")
+        plt.ylabel("Offspring Fitness")
+        
+        # Save plot
+        os.makedirs(output_dir, exist_ok=True)
+        plt.savefig(os.path.join(output_dir, "fitness_vs_genomic_distance.png"))
+        plt.close()
+    
+    def plot_fitness_vs_prs(self, output_dir: str) -> None:
+        """Plot offspring fitness vs combined PRS for each inheritance mode."""
+        plt.figure(figsize=(12, 8))
+        
+        # Scatter plot with regression
+        sns.lmplot(
+            data=self.df,
+            x="combined_prs",
+            y="offspring_fitness",
+            hue="inheritance_mode",
+            order=2,  # 2nd degree polynomial
+            scatter_kws={"alpha": 0.3},
+            height=8,
+            aspect=1.5
+        )
+        
+        plt.title("Offspring Fitness vs Combined PRS")
+        plt.xlabel("Combined PRS")
+        plt.ylabel("Offspring Fitness")
+        
+        # Save plot
+        os.makedirs(output_dir, exist_ok=True)
+        plt.savefig(os.path.join(output_dir, "fitness_vs_prs.png"))
+        plt.close()
+    
+    def plot_fitness_distributions(self, output_dir: str) -> None:
+        """Plot fitness distributions for each inheritance mode."""
+        plt.figure(figsize=(12, 8))
+        
+        # Violin plot
+        sns.violinplot(
+            data=self.df,
+            x="inheritance_mode",
+            y="offspring_fitness"
+        )
+        
+        plt.title("Offspring Fitness Distribution by Inheritance Mode")
+        plt.xlabel("Inheritance Mode")
+        plt.ylabel("Offspring Fitness")
+        
+        # Save plot
+        os.makedirs(output_dir, exist_ok=True)
+        plt.savefig(os.path.join(output_dir, "fitness_distributions.png"))
+        plt.close()
+    
+    def calculate_regression_stats(self) -> Dict[str, Dict[str, float]]:
+        """
+        Calculate regression statistics for each inheritance mode.
+        
+        Returns:
+            Dictionary containing R² and p-values for each mode
+        """
+        stats_by_mode = {}
+        
+        for mode in self.df["inheritance_mode"].unique():
+            mode_data = self.df[self.df["inheritance_mode"] == mode]
+            
+            # Fit 2nd degree polynomial
+            x = mode_data["avg_parent_fitness"]
+            y = mode_data["offspring_fitness"]
+            coeffs = np.polyfit(x, y, 2)
+            
+            # Calculate R²
+            y_pred = np.polyval(coeffs, x)
+            r2 = 1 - np.sum((y - y_pred) ** 2) / np.sum((y - np.mean(y)) ** 2)
+            
+            # Calculate p-value using F-test
+            n = len(x)
+            p = 1 - stats.f.cdf(
+                (r2 / 2) / ((1 - r2) / (n - 3)),
+                2,  # degrees of freedom for regression
+                n - 3  # degrees of freedom for residuals
+            )
+            
+            stats_by_mode[mode] = {
+                "r2": r2,
+                "p_value": p
+            }
+        
+        return stats_by_mode
+    
+    def save_analysis_results(self, output_dir: str) -> None:
+        """
+        Save all analysis results to the specified directory.
+        
+        Args:
+            output_dir: Directory to save results
+        """
+        os.makedirs(output_dir, exist_ok=True)
+        
+        # Generate plots
+        self.plot_fitness_vs_parent_fitness(output_dir)
+        self.plot_fitness_vs_genomic_distance(output_dir)
+        self.plot_fitness_vs_prs(output_dir)
+        self.plot_fitness_distributions(output_dir)
+        
+        # Calculate and save statistics
+        stats = self.calculate_regression_stats()
+        with open(os.path.join(output_dir, "regression_stats.json"), "w") as f:
+            json.dump(stats, f, indent=2)
+        
+        # Save raw data
+        self.df.to_csv(os.path.join(output_dir, "cross_data.csv"), index=False)

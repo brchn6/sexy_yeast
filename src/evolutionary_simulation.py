@@ -286,13 +286,8 @@ class EvolutionarySimulationApp:
         analysis_result["run_id"] = run_id
         analysis_result["run_time_seconds"] = time.time() - start_time
         
-        # Convert diploid offspring to dictionaries for serialization
-        diploid_offspring_dict = {}
-        for model, organisms in simulation_result["diploid_offspring"].items():
-            diploid_offspring_dict[model] = [org.to_dict() for org in organisms]
-        
-        # Add raw diploid data for visualization
-        analysis_result["diploid_offspring"] = diploid_offspring_dict
+        # The offspring data is already in dictionary format from SimulationRunner
+        analysis_result["diploid_offspring"] = simulation_result["diploid_offspring"]
         
         # Save individual run data if requested
         if self.args.save_individual_runs:
@@ -332,7 +327,7 @@ class EvolutionarySimulationApp:
         plots_dir.mkdir(exist_ok=True)
         
         simulation = simulation_result["simulation"]
-        diploid_offspring = simulation_result["diploid_offspring"]
+        offspring_by_model = simulation_result["diploid_offspring"]
         mating_strategy = self.args.mating_strategy
 
         self.logger.debug(f"Simulation object type: {type(simulation)}")
@@ -352,26 +347,26 @@ class EvolutionarySimulationApp:
             
             # Parent-offspring relationships
             self.visualizer.plot_parent_offspring_relationships(
-                diploid_offspring, plots_dir, mating_strategy
+                offspring_by_model, plots_dir, mating_strategy
             )
 
             # Min/max parent fitness analysis
             self.visualizer.plot_min_max_parent_offspring_fitness(
-                diploid_offspring, plots_dir, mating_strategy
+                offspring_by_model, plots_dir, mating_strategy
             )
             
             # Genomic distance effects
             self.visualizer.plot_genomic_distance_effects(
-                diploid_offspring, plots_dir, mating_strategy
+                offspring_by_model, plots_dir, mating_strategy
             )
             
             # PRS analysis
             self.visualizer.plot_prs_analysis(
-                diploid_offspring, plots_dir, mating_strategy
+                offspring_by_model, plots_dir, mating_strategy
             )
             
             # Fitness heatmap
-            self.visualizer.plot_fitness_heatmap(diploid_offspring, plots_dir)
+            self.visualizer.plot_fitness_heatmap(offspring_by_model, plots_dir)
 
             self.logger.info(f"Created plots for run {run_id}")
             
@@ -503,18 +498,7 @@ class EvolutionarySimulationApp:
                 plots_dir.mkdir(exist_ok=True)
                 
                 # Create plots using the collector data which has the correct structure
-                multi_viz.plot_parent_offspring_relationships(
-                    self.data_collector.get_all_data(),
-                    plots_dir
-                )
-                
-                # Additional multi-run plots
-                multi_viz.plot_fitness_evolution_comparison(
-                    self.data_collector.get_all_data(),
-                    plots_dir
-                )
-                
-                multi_viz.plot_model_comparison_summary(
+                multi_viz.plot_all_analyses(
                     self.data_collector.get_all_data(),
                     plots_dir
                 )
