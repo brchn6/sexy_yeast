@@ -616,24 +616,23 @@ class SimulationVisualizer:
         ax.set_xlabel("Average Parent Fitness", fontsize=18, fontweight='bold', labelpad=15)
         ax.set_ylabel("Offspring Fitness", fontsize=18, fontweight='bold', labelpad=15)
         
-        colors = ["#2E86AB", "#A23B72", "#F18F01"]
-        for i, (model, color) in enumerate(zip(["dominant", "recessive", "codominant"], colors)):
-            if model in extracted_data and extracted_data[model]['parent_fitness']:
+        # Use all available models, not just hardcoded ones
+        model_list = list(extracted_data.keys())
+        colors = plt.cm.tab10.colors
+        for i, model in enumerate(model_list):
+            if extracted_data[model]['parent_fitness']:
                 x_data = np.array(extracted_data[model]['parent_fitness'])
                 y_data = np.array(extracted_data[model]['offspring_fitness'])
-                
+                color = colors[i % len(colors)]
                 ax.scatter(x_data, y_data,
                           label=model.capitalize(), color=color, alpha=0.7, s=80, edgecolors='black', linewidths=1)
-                
                 # Add 2nd degree polynomial fit
                 if len(x_data) > 2:
                     self._add_regression_line(ax, x_data, y_data, model, color)
-        
-        ax.legend(fontsize=16, frameon=True, shadow=True, framealpha=0.9)
+        # Place legend outside plot
+        ax.legend(fontsize=16, frameon=True, shadow=True, framealpha=0.9, loc='center left', bbox_to_anchor=(1, 0.5))
         ax.grid(True, alpha=0.3, linewidth=1.5)
         ax.tick_params(labelsize=16, width=2, length=8)
-        
-        # Thicker axis lines
         for spine in ax.spines.values():
             spine.set_linewidth(2)
 
@@ -643,24 +642,21 @@ class SimulationVisualizer:
         ax.set_xlabel("Polygenic Risk Score", fontsize=18, fontweight='bold', labelpad=15)
         ax.set_ylabel("Offspring Fitness", fontsize=18, fontweight='bold', labelpad=15)
         
-        colors = ["#2E86AB", "#A23B72", "#F18F01"]
-        for i, (model, color) in enumerate(zip(["dominant", "recessive", "codominant"], colors)):
-            if model in extracted_data and extracted_data[model]['prs_values']:
+        model_list = list(extracted_data.keys())
+        colors = plt.cm.tab10.colors
+        for i, model in enumerate(model_list):
+            if extracted_data[model]['prs_values']:
                 x_data = np.array(extracted_data[model]['prs_values'])
                 y_data = np.array(extracted_data[model]['offspring_fitness'])
-                
+                color = colors[i % len(colors)]
                 ax.scatter(x_data, y_data,
                           label=model.capitalize(), color=color, alpha=0.7, s=80, edgecolors='black', linewidths=1)
-                
                 # Add 2nd degree polynomial fit
                 if len(x_data) > 2:
                     self._add_regression_line(ax, x_data, y_data, model, color)
-        
-        ax.legend(fontsize=16, frameon=True, shadow=True, framealpha=0.9)
+        ax.legend(fontsize=16, frameon=True, shadow=True, framealpha=0.9, loc='center left', bbox_to_anchor=(1, 0.5))
         ax.grid(True, alpha=0.3, linewidth=1.5)
         ax.tick_params(labelsize=16, width=2, length=8)
-        
-        # Thicker axis lines
         for spine in ax.spines.values():
             spine.set_linewidth(2)
 
@@ -670,24 +666,21 @@ class SimulationVisualizer:
         ax.set_xlabel("Genomic Distance", fontsize=18, fontweight='bold', labelpad=15)
         ax.set_ylabel("Offspring Fitness", fontsize=18, fontweight='bold', labelpad=15)
         
-        colors = ["#2E86AB", "#A23B72", "#F18F01"]
-        for i, (model, color) in enumerate(zip(["dominant", "recessive", "codominant"], colors)):
-            if model in extracted_data and extracted_data[model]['genomic_distances']:
+        model_list = list(extracted_data.keys())
+        colors = plt.cm.tab10.colors
+        for i, model in enumerate(model_list):
+            if extracted_data[model]['genomic_distances']:
                 x_data = np.array(extracted_data[model]['genomic_distances'])
                 y_data = np.array(extracted_data[model]['offspring_fitness'])
-                
+                color = colors[i % len(colors)]
                 ax.scatter(x_data, y_data,
                           label=model.capitalize(), color=color, alpha=0.7, s=80, edgecolors='black', linewidths=1)
-                
                 # Add 2nd degree polynomial fit
                 if len(x_data) > 2:
                     self._add_regression_line(ax, x_data, y_data, model, color)
-        
-        ax.legend(fontsize=16, frameon=True, shadow=True, framealpha=0.9)
+        ax.legend(fontsize=16, frameon=True, shadow=True, framealpha=0.9, loc='center left', bbox_to_anchor=(1, 0.5))
         ax.grid(True, alpha=0.3, linewidth=1.5)
         ax.tick_params(labelsize=16, width=2, length=8)
-        
-        # Thicker axis lines
         for spine in ax.spines.values():
             spine.set_linewidth(2)
 
@@ -1177,7 +1170,7 @@ class MultiSimulationVisualizer:
             self.plot_model_comparison_summary(extracted_data, output_dir)
             
             # Save FDR correction results
-            self.save_fdr_results(output_dir)
+            # self.save_fdr_results(output_dir)
             
         except Exception as e:
             self.logger.error(f"Failed to generate analysis plots: {e}")
