@@ -424,17 +424,9 @@ def calculate_genomic_distance(genome1: np.ndarray, genome2: np.ndarray) -> floa
 
 
 def calculate_diploid_prs(organism: DiploidOrganism) -> float:
-    """Calculate polygenic risk score for a diploid organism.
-    
-    Args:
-        organism: DiploidOrganism instance
-        
-    Returns:
-        Average PRS of the two haploid genomes
-    """
-    prs1 = np.sum(organism.allele1)
-    prs2 = np.sum(organism.allele2)
-    return float((prs1 + prs2) / 2)
+    """Calculate polygenic risk score for a diploid organism as the total count of minor (-1) alleles across both alleles."""
+    minor_allele_count = np.sum(organism.allele1 == -1) + np.sum(organism.allele2 == -1)
+    return minor_allele_count  # total count of minor alleles
 
 
 def calculate_polygenic_risk_score(genome: np.ndarray) -> float:

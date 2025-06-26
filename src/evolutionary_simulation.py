@@ -31,7 +31,7 @@ warnings.filterwarnings("ignore", category=RuntimeWarning, module="numpy")
 from core_models import Environment, FitnessMethod, MatingStrategy
 from simulation_engine import SimulationRunner
 from analysis_tools import SimulationAnalyzer, MultiRunAnalyzer, save_analysis_results, SimulationDataCollector
-from visualization import SimulationVisualizer, MultiSimulationVisualizer
+from visualization import SimulationVisualizer, MultiSimulationVisualizer, plot_polynomial_coefficient_distributions_from_results
 from config_utils import save_json_with_numpy
 
 
@@ -507,6 +507,14 @@ class EvolutionarySimulationApp:
             except Exception as e:
                 self.logger.error(f"Failed to create multi-run plots: {e}")
                 self.logger.error("Error details:", exc_info=True)
+        try:
+            sim_results_path = str(self.output_path / "simulation_results.json")
+            polyfit_output_dir = str(self.output_path / "multi_run_plots" / "polyfit_coefficients")
+            plot_polynomial_coefficient_distributions_from_results(sim_results_path, polyfit_output_dir)
+            self.logger.info(f"Polynomial coefficient distribution plots saved to {polyfit_output_dir}")
+        except Exception as e:
+            self.logger.error(f"Failed to plot polynomial coefficient distributions: {e}")
+            self.logger.error("Error details:", exc_info=True)
     
     def _create_summary_report(self, aggregated_stats: Dict[str, Any]) -> None:
         """Create a human-readable summary report."""
