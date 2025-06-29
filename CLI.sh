@@ -501,11 +501,12 @@ bsub -q gsla-cpu -R rusage[mem=2GB] \
   --fitness_method single_position \
   --beta 0 \
   --rho 0.25 \
-  --num_runs 1 \
+  --num_runs 50 \
   --output_dir /home/labs/pilpel/barc/sexy_yeast/Results/ \
   --save_individual_runs \
   --plot_individual_runs \
   --random_seed_env 42 \
+  --initial_fitness 0 \
   --log_level INFO  
 
 bsub -q gsla-cpu -R rusage[mem=2GB] \
@@ -526,17 +527,17 @@ bsub -q gsla-cpu -R rusage[mem=2GB] \
 
 bsub -q gsla-cpu -R rusage[mem=4GB] \
     /home/labs/pilpel/barc/sexy_yeast/src/evolutionary_simulation.py \
-    --genome_size 40 \
-    --generations 8 \
+    --genome_size 400 \
+    --generations 6 \
     --mating_strategy all_vs_all \
     --fitness_method sherrington_kirkpatrick \
-    --beta 0 \
+    --beta 0.5 \
     --rho 0.25 \
-    --num_runs 10 \
+    --num_runs 100 \
     --output_dir /home/labs/pilpel/barc/sexy_yeast/Results/ \
     --save_individual_runs \
-    --plot_individual_runs \
     --random_seed_env 42 \
+    --initial_fitness 0 \
     --log_level INFO  
 
 bsub -q gsla-cpu -R rusage[mem=2GB] \
@@ -566,3 +567,17 @@ bsub -q gsla-cpu -R rusage[mem=2GB] \
     --save_individual_runs \
     --random_seed_env 42 \
     --log_level INFO  
+
+
+
+bsub -q gsla-cpu -R rusage[mem=40GB] /home/labs/pilpel/barc/sexy_yeast/src/evolutionary_simulation.py --genome_size 400 --generations 6 --mating_strategy all_vs_all --fitness_method sherrington_kirkpatrick --beta 0.0 --rho 0.25 --num_runs 50 --output_dir /home/labs/pilpel/barc/sexy_yeast/Results/ --save_individual_runs --random_seed_env 42 --initial_fitness 0 --log_level INFO  --plot_individual_runs
+bsub -q gsla-cpu -R rusage[mem=40GB] /home/labs/pilpel/barc/sexy_yeast/src/evolutionary_simulation.py --genome_size 400 --generations 6 --mating_strategy all_vs_all --fitness_method sherrington_kirkpatrick --beta 0.4 --rho 0.25 --num_runs 50 --output_dir /home/labs/pilpel/barc/sexy_yeast/Results/ --save_individual_runs --random_seed_env 42 --initial_fitness 0 --log_level INFO  --plot_individual_runs
+bsub -q gsla-cpu -R rusage[mem=40GB] /home/labs/pilpel/barc/sexy_yeast/src/evolutionary_simulation.py --genome_size 4 --generations 2 --mating_strategy all_vs_all --fitness_method sherrington_kirkpatrick --beta 0.0 --rho 0.25 --num_runs 50 --output_dir /home/labs/pilpel/barc/sexy_yeast/Results/ --save_individual_runs --random_seed_env 42 --initial_fitness 0 --log_level INFO  --plot_individual_runs
+bsub -q gsla-cpu -R rusage[mem=40GB] /home/labs/pilpel/barc/sexy_yeast/src/evolutionary_simulation.py --genome_size 1000 --generations 4 --mating_strategy all_vs_all --fitness_method sherrington_kirkpatrick --beta 0.0 --rho 0.25 --num_runs 50 --output_dir /home/labs/pilpel/barc/sexy_yeast/Results/ --save_individual_runs --random_seed_env 42 --initial_fitness 0 --log_level INFO  --plot_individual_runs
+bsub -q gsla-cpu -R rusage[mem=40GB] /home/labs/pilpel/barc/sexy_yeast/src/evolutionary_simulation.py --genome_size 3 --generations 2 --mating_strategy all_vs_all --fitness_method sherrington_kirkpatrick --beta 0.0 --rho 0.25 --num_runs 50 --output_dir /home/labs/pilpel/barc/sexy_yeast/Results/ --save_individual_runs --random_seed_env 42 --initial_fitness 0 --log_level INFO  --plot_individual_runs
+bsub -q gsla-cpu -R rusage[mem=40GB] /home/labs/pilpel/barc/sexy_yeast/src/evolutionary_simulation.py --genome_size 3 --generations 2 --mating_strategy all_vs_all --fitness_method single_position --beta 0.0 --rho 0.25 --num_runs 50 --output_dir /home/labs/pilpel/barc/sexy_yeast/Results/ --save_individual_runs --random_seed_env 42 --initial_fitness 0 --log_level INFO  --plot_individual_runs
+
+
+
+
+bsub -q gsla-cpu -R rusage[mem=40GB] /home/labs/pilpel/barc/sexy_yeast/src/evolutionary_simulation.py --genome_size 4 --generations 2 --mating_strategy all_vs_all --fitness_method sherrington_kirkpatrick --beta 0.0 --rho 0.25 --num_runs 3 --output_dir /home/labs/pilpel/barc/sexy_yeast/Results/ --save_individual_runs --random_seed_env 42 --initial_fitness 0 --log_level INFO  --plot_individual_runs

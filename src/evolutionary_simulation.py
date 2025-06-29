@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/home/labs/pilpel/barc/.conda/envs/sexy_yeast_env/bin/python
 """
 Main application for the evolutionary simulation.
 
@@ -16,22 +16,15 @@ from datetime import datetime
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 import json
-import matplotlib
-matplotlib.use('Agg')  # Use non-interactive backend
 import matplotlib.pyplot as plt
 import seaborn as sns
 import numpy as np
 import pandas as pd
-import warnings
-
-# Suppress warnings
-warnings.filterwarnings("ignore", category=UserWarning, module="matplotlib")
-warnings.filterwarnings("ignore", category=RuntimeWarning, module="numpy")
 
 from core_models import Environment, FitnessMethod, MatingStrategy
 from simulation_engine import SimulationRunner
-from analysis_tools import SimulationAnalyzer, MultiRunAnalyzer, save_analysis_results, SimulationDataCollector
-from visualization import SimulationVisualizer, MultiSimulationVisualizer
+from analysis_tools import SimulationAnalyzer, MultiRunAnalyzer, save_analysis_results ,SimulationDataCollector
+from visualization import SimulationVisualizer , MultiSimulationVisualizer
 from config_utils import save_json_with_numpy
 
 
@@ -121,7 +114,6 @@ def create_output_directory(base_dir: str, args: argparse.Namespace) -> Path:
     
     return output_path
 
-
 class EvolutionarySimulationApp:
     """
     Main application class that orchestrates the entire simulation workflow.
@@ -144,6 +136,13 @@ class EvolutionarySimulationApp:
         # collector for simulation data
         self.data_collector = SimulationDataCollector()
     
+    def parse_arguments(self) -> argparse.Namespace:
+        """Parse and validate command-line arguments."""
+        parser = argparse.ArgumentParser(
+            description="Run evolutionary simulation with diploid analysis",
+            formatter_class=argparse.ArgumentDefaultsHelpFormatter
+        )
+        
     def parse_arguments(self) -> argparse.Namespace:
         """Parse and validate command-line arguments."""
         parser = argparse.ArgumentParser(
@@ -286,8 +285,13 @@ class EvolutionarySimulationApp:
         analysis_result["run_id"] = run_id
         analysis_result["run_time_seconds"] = time.time() - start_time
         
-        # The offspring data is already in dictionary format from SimulationRunner
-        analysis_result["diploid_offspring"] = simulation_result["diploid_offspring"]
+        # Convert diploid offspring to dictionaries for serialization
+        diploid_offspring_dict = {}
+        for model, organisms in simulation_result["diploid_offspring"].items():
+            diploid_offspring_dict[model] = [org.to_dict() for org in organisms]
+        
+        # Add raw diploid data for visualization
+        analysis_result["diploid_offspring"] = diploid_offspring_dict
         
         # Save individual run data if requested
         if self.args.save_individual_runs:
@@ -327,10 +331,12 @@ class EvolutionarySimulationApp:
         plots_dir.mkdir(exist_ok=True)
         
         simulation = simulation_result["simulation"]
-        offspring_by_model = simulation_result["diploid_offspring"]
+        diploid_offspring = simulation_result["diploid_offspring"]
         mating_strategy = self.args.mating_strategy
 
         self.logger.debug(f"Simulation object type: {type(simulation)}")
+        self.logger.debug(f"Simulation object attributes: {dir(simulation)}")
+
         
         # Get all organisms from the simulation for tree visualization
         all_organisms = self._extract_organisms_for_tree(simulation)
@@ -340,43 +346,41 @@ class EvolutionarySimulationApp:
             self.visualizer.plot_fitness_evolution(simulation, plots_dir)
     
             # Basic relationship tree (limited to 800 organisms for performance)
-            if all_organisms:
-                self.visualizer.plot_relationship_tree(
-                    all_organisms, plots_dir, filename="relationship_tree.png", max_organisms=800
-                )
+            self.visualizer.plot_relationship_tree(all_organisms, plots_dir, filename="relationship_tree.png",max_organisms=800)
             
             # Parent-offspring relationships
             self.visualizer.plot_parent_offspring_relationships(
-                offspring_by_model, plots_dir, mating_strategy
+                diploid_offspring, plots_dir, mating_strategy
             )
 
-            # Min/max parent fitness analysis
             self.visualizer.plot_min_max_parent_offspring_fitness(
-                offspring_by_model, plots_dir, mating_strategy
+                diploid_offspring, plots_dir, mating_strategy
             )
             
             # Genomic distance effects
             self.visualizer.plot_genomic_distance_effects(
-                offspring_by_model, plots_dir, mating_strategy
+                diploid_offspring, plots_dir, mating_strategy
             )
             
             # PRS analysis
             self.visualizer.plot_prs_analysis(
-                offspring_by_model, plots_dir, mating_strategy
+                diploid_offspring, plots_dir, mating_strategy
             )
             
             # Fitness heatmap
-            self.visualizer.plot_fitness_heatmap(offspring_by_model, plots_dir)
+            self.visualizer.plot_fitness_heatmap(diploid_offspring, plots_dir)
 
+            
             self.logger.info(f"Created plots for run {run_id}")
             
         except Exception as e:
             self.logger.warning(f"Failed to create plots for run {run_id}: {e}")
-            self.logger.warning("Error details:", exc_info=True)
 
     def _extract_organisms_for_tree(self, simulation) -> List[Any]:
         """
         Extract organism data from the simulation for relationship tree visualization.
+
+        This assumes that organisms have `id`, `generation`, `fitness`, and `parent_id` attributes.
 
         Args:
             simulation: The simulation object
@@ -397,6 +401,8 @@ class EvolutionarySimulationApp:
                 candidates = simulation.get_last_generation()
                 self.logger.debug(f"Using 'get_last_generation': {len(candidates)} organisms")
             
+            # You could add more extraction options here if your structure grows
+
             # Validate a few sample organisms
             for i, org in enumerate(candidates[:5]):
                 self.logger.debug(
@@ -436,7 +442,6 @@ class EvolutionarySimulationApp:
                 
             except Exception as e:
                 self.logger.error(f"Run {run_id} failed: {e}")
-                self.logger.error("Error details:", exc_info=True)
                 # Continue with other runs
                 continue
         
@@ -491,22 +496,21 @@ class EvolutionarySimulationApp:
         self.logger.info(f"Final results saved to {self.output_path}/simulation_results.json")
 
         # Create multi-run visualizations
-        if self.args.create_plots:
-            try:
-                multi_viz = MultiSimulationVisualizer()
-                plots_dir = self.output_path / "multi_run_plots"
-                plots_dir.mkdir(exist_ok=True)
-                
-                # Create plots using the collector data which has the correct structure
-                multi_viz.plot_all_analyses(
-                    self.data_collector.get_all_data(),
-                    plots_dir
-                )
-                
-                self.logger.info(f"Multi-run plots saved to {plots_dir}")
-            except Exception as e:
-                self.logger.error(f"Failed to create multi-run plots: {e}")
-                self.logger.error("Error details:", exc_info=True)
+        try:
+            multi_viz = MultiSimulationVisualizer()
+            plots_dir = self.output_path / "multi_run_plots"
+            plots_dir.mkdir(exist_ok=True)
+            
+            # Create plots using the collector data which has the correct structure
+            multi_viz.plot_parent_offspring_relationships(
+                self.data_collector.get_all_data(),
+                plots_dir
+            )
+            
+            self.logger.info(f"Multi-run plots saved to {plots_dir}")
+        except Exception as e:
+            self.logger.error(f"Failed to create multi-run plots: {e}")
+            self.logger.error("Error details:", exc_info=True)
     
     def _create_summary_report(self, aggregated_stats: Dict[str, Any]) -> None:
         """Create a human-readable summary report."""
@@ -598,7 +602,6 @@ class EvolutionarySimulationApp:
         except Exception as e:
             if self.logger:
                 self.logger.error(f"Application failed: {e}")
-                self.logger.error("Error details:", exc_info=True)
             else:
                 print(f"Application failed: {e}")
             sys.exit(1)

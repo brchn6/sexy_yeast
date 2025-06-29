@@ -21,6 +21,9 @@ import scipy.stats
 from scipy.stats import pearsonr
 from statsmodels.stats.multitest import multipletests
 import warnings
+import os
+import json
+import pandas as pd
 
 # Suppress matplotlib warnings
 warnings.filterwarnings("ignore", category=UserWarning, module="matplotlib")
@@ -616,24 +619,23 @@ class SimulationVisualizer:
         ax.set_xlabel("Average Parent Fitness", fontsize=18, fontweight='bold', labelpad=15)
         ax.set_ylabel("Offspring Fitness", fontsize=18, fontweight='bold', labelpad=15)
         
-        colors = ["#2E86AB", "#A23B72", "#F18F01"]
-        for i, (model, color) in enumerate(zip(["dominant", "recessive", "codominant"], colors)):
-            if model in extracted_data and extracted_data[model]['parent_fitness']:
+        # Use all available models, not just hardcoded ones
+        model_list = list(extracted_data.keys())
+        colors = plt.cm.tab10.colors
+        for i, model in enumerate(model_list):
+            if extracted_data[model]['parent_fitness']:
                 x_data = np.array(extracted_data[model]['parent_fitness'])
                 y_data = np.array(extracted_data[model]['offspring_fitness'])
-                
+                color = colors[i % len(colors)]
                 ax.scatter(x_data, y_data,
                           label=model.capitalize(), color=color, alpha=0.7, s=80, edgecolors='black', linewidths=1)
-                
                 # Add 2nd degree polynomial fit
                 if len(x_data) > 2:
                     self._add_regression_line(ax, x_data, y_data, model, color)
-        
-        ax.legend(fontsize=16, frameon=True, shadow=True, framealpha=0.9)
+        # Place legend outside plot
+        ax.legend(fontsize=16, frameon=True, shadow=True, framealpha=0.9, loc='center left', bbox_to_anchor=(1, 0.5))
         ax.grid(True, alpha=0.3, linewidth=1.5)
         ax.tick_params(labelsize=16, width=2, length=8)
-        
-        # Thicker axis lines
         for spine in ax.spines.values():
             spine.set_linewidth(2)
 
@@ -643,24 +645,21 @@ class SimulationVisualizer:
         ax.set_xlabel("Polygenic Risk Score", fontsize=18, fontweight='bold', labelpad=15)
         ax.set_ylabel("Offspring Fitness", fontsize=18, fontweight='bold', labelpad=15)
         
-        colors = ["#2E86AB", "#A23B72", "#F18F01"]
-        for i, (model, color) in enumerate(zip(["dominant", "recessive", "codominant"], colors)):
-            if model in extracted_data and extracted_data[model]['prs_values']:
+        model_list = list(extracted_data.keys())
+        colors = plt.cm.tab10.colors
+        for i, model in enumerate(model_list):
+            if extracted_data[model]['prs_values']:
                 x_data = np.array(extracted_data[model]['prs_values'])
                 y_data = np.array(extracted_data[model]['offspring_fitness'])
-                
+                color = colors[i % len(colors)]
                 ax.scatter(x_data, y_data,
                           label=model.capitalize(), color=color, alpha=0.7, s=80, edgecolors='black', linewidths=1)
-                
                 # Add 2nd degree polynomial fit
                 if len(x_data) > 2:
                     self._add_regression_line(ax, x_data, y_data, model, color)
-        
-        ax.legend(fontsize=16, frameon=True, shadow=True, framealpha=0.9)
+        ax.legend(fontsize=16, frameon=True, shadow=True, framealpha=0.9, loc='center left', bbox_to_anchor=(1, 0.5))
         ax.grid(True, alpha=0.3, linewidth=1.5)
         ax.tick_params(labelsize=16, width=2, length=8)
-        
-        # Thicker axis lines
         for spine in ax.spines.values():
             spine.set_linewidth(2)
 
@@ -670,50 +669,79 @@ class SimulationVisualizer:
         ax.set_xlabel("Genomic Distance", fontsize=18, fontweight='bold', labelpad=15)
         ax.set_ylabel("Offspring Fitness", fontsize=18, fontweight='bold', labelpad=15)
         
-        colors = ["#2E86AB", "#A23B72", "#F18F01"]
-        for i, (model, color) in enumerate(zip(["dominant", "recessive", "codominant"], colors)):
-            if model in extracted_data and extracted_data[model]['genomic_distances']:
+        model_list = list(extracted_data.keys())
+        colors = plt.cm.tab10.colors
+        for i, model in enumerate(model_list):
+            if extracted_data[model]['genomic_distances']:
                 x_data = np.array(extracted_data[model]['genomic_distances'])
                 y_data = np.array(extracted_data[model]['offspring_fitness'])
-                
+                color = colors[i % len(colors)]
                 ax.scatter(x_data, y_data,
                           label=model.capitalize(), color=color, alpha=0.7, s=80, edgecolors='black', linewidths=1)
-                
                 # Add 2nd degree polynomial fit
                 if len(x_data) > 2:
                     self._add_regression_line(ax, x_data, y_data, model, color)
-        
-        ax.legend(fontsize=16, frameon=True, shadow=True, framealpha=0.9)
+        ax.legend(fontsize=16, frameon=True, shadow=True, framealpha=0.9, loc='center left', bbox_to_anchor=(1, 0.5))
         ax.grid(True, alpha=0.3, linewidth=1.5)
         ax.tick_params(labelsize=16, width=2, length=8)
-        
-        # Thicker axis lines
         for spine in ax.spines.values():
             spine.set_linewidth(2)
 
     def _plot_multi_run_relationships(self, data: Dict[str, Any], output_dir: Path) -> None:
-        """Plot relationships for multi-run summary."""
+        """
+        Plot relationships for multi-run summary with publication-quality layout and clarity.
+        The plotting area is maximized, legends are placed outside, and all elements are highly readable.
+        """
         summary = data.get("summary", {})
         if not summary:
             self.logger.error("No summary data found for plotting")
             return
-        
-        fig, axes = plt.subplots(1, 3, figsize=(24, 8))
-        fig.suptitle("Parent-Offspring Relationships Across Multiple Runs", 
-                    fontsize=24, fontweight='bold', y=0.98)
-        
+
+        # Use a larger figure and more square aspect for clarity
+        fig, axes = plt.subplots(1, 3, figsize=(30, 10), constrained_layout=True)
+        fig.suptitle(
+            "Parent-Offspring Relationships Across Multiple Runs",
+            fontsize=32, fontweight='bold', y=1.05
+        )
+
         try:
-            # Plot parent vs offspring fitness
+            # Plot each relationship with large fonts and clear markers
             self._plot_parent_vs_offspring_fitness_summary(axes[0], summary)
-            
-            # Plot PRS vs offspring fitness
             self._plot_prs_vs_offspring_fitness_summary(axes[1], summary)
-            
-            # Plot genomic distance vs offspring fitness
             self._plot_genomic_distance_vs_offspring_fitness_summary(axes[2], summary)
-            
-            # Adjust layout and save
-            plt.tight_layout(pad=4.0)
+
+            # Set all axes properties for publication quality
+            for ax in axes:
+                # Increase label and tick font sizes
+                ax.title.set_fontsize(26)
+                ax.title.set_fontweight('bold')
+                ax.xaxis.label.set_fontsize(22)
+                ax.xaxis.label.set_fontweight('bold')
+                ax.yaxis.label.set_fontsize(22)
+                ax.yaxis.label.set_fontweight('bold')
+                ax.tick_params(axis='both', which='major', labelsize=20, width=2.5, length=10)
+                ax.tick_params(axis='both', which='minor', labelsize=18, width=1.5, length=6)
+                # Thicker axis lines
+                for spine in ax.spines.values():
+                    spine.set_linewidth(2.5)
+                # Make grid more subtle but visible
+                ax.grid(True, alpha=0.25, linewidth=1.5, zorder=0)
+
+            # Place a single legend outside the right of the figure, combining all handles
+            handles_labels = [ax.get_legend_handles_labels() for ax in axes]
+            handles = sum([hl[0] for hl in handles_labels], [])
+            labels = sum([hl[1] for hl in handles_labels], [])
+            # Remove duplicate labels
+            from collections import OrderedDict
+            by_label = OrderedDict(zip(labels, handles))
+            fig.legend(
+                by_label.values(), by_label.keys(),
+                loc='center left', bbox_to_anchor=(1.01, 0.5),
+                fontsize=22, frameon=True, shadow=True, framealpha=0.95, borderpad=1.5, markerscale=1.5
+            )
+
+            # Adjust layout for space for legend and titles
+            plt.subplots_adjust(left=0.06, right=0.82, top=0.90, bottom=0.13, wspace=0.28)
             self._save_figure(fig, output_dir, "parent_offspring_relationships.png")
         except Exception as e:
             self.logger.error(f"Failed to plot multi-run relationships: {e}")
@@ -1119,7 +1147,6 @@ class SimulationVisualizer:
         except Exception as e:
             self.logger.error(f"Failed to save FDR results: {e}")
 
-
 class MultiSimulationVisualizer:
     """Creates visualizations comparing results across multiple simulation runs."""
     
@@ -1177,7 +1204,7 @@ class MultiSimulationVisualizer:
             self.plot_model_comparison_summary(extracted_data, output_dir)
             
             # Save FDR correction results
-            self.save_fdr_results(output_dir)
+            # self.save_fdr_results(output_dir)
             
         except Exception as e:
             self.logger.error(f"Failed to generate analysis plots: {e}")
@@ -1794,3 +1821,142 @@ class MultiSimulationVisualizer:
             self.logger.error(f"Failed to save figure: {e}")
             if 'fig' in locals():
                 plt.close(fig)
+
+def plot_polynomial_coefficient_distributions_from_results(
+    sim_results_path: str, 
+    output_dir: str = "multi_run_plots/polyfit_coefficients"
+):
+    """
+    Plot and compare the distribution of polynomial fit coefficients for each fit type across all inheritance models.
+    Each model's distribution is shown side by side (not overlapping) for each coefficient, for clarity.
+    Also logs all coefficients and equations to a CSV, and annotates mean values and mean equations.
+    Args:
+        sim_results_path: Path to simulation_results.json
+        output_dir: Directory to save plots and logs (will be created if doesn't exist)
+    """
+    import os
+    import json
+    import pandas as pd
+    import numpy as np
+    import matplotlib.pyplot as plt
+    import seaborn as sns
+
+    os.makedirs(output_dir, exist_ok=True)
+
+    with open(sim_results_path, 'r') as f:
+        results = json.load(f)
+
+    models = ['dominant', 'recessive', 'codominant']
+    fit_types = ['prs_fit', 'genomic_distance_fit', 'parent_offspring_fit']
+    coef_labels = ['a (x^2)', 'b (x)', 'c (const)']
+    model_colors = dict(zip(models, sns.color_palette("Set1", n_colors=3)))
+
+    # Collect all coefficients and equations for logging
+    log_rows = []
+    # Structure: fit_type -> coef_index -> model -> list of values
+    all_coefs = {fit: {i: {model: [] for model in models} for i in range(3)} for fit in fit_types}
+    all_eqs = {fit: {model: [] for model in models} for fit in fit_types}
+
+    for run_idx, run in enumerate(results.get('individual_runs', [])):
+        poly_fits = run.get('polynomial_fits', {})
+        for model in models:
+            model_fits = poly_fits.get(model, {})
+            for fit_type in fit_types:
+                fit = model_fits.get(fit_type, {})
+                coefs = fit.get('coefficients', [])
+                eq = fit.get('equation', '')
+                if len(coefs) == 3:
+                    for i in range(3):
+                        all_coefs[fit_type][i][model].append(coefs[i])
+                    all_eqs[fit_type][model].append(eq)
+                    log_rows.append({
+                        'run': run.get('run_id', run_idx+1),
+                        'model': model,
+                        'fit_type': fit_type,
+                        'a': coefs[0],
+                        'b': coefs[1],
+                        'c': coefs[2],
+                        'equation': eq
+                    })
+
+    # Save all coefficients and equations to CSV
+    df_log = pd.DataFrame(log_rows)
+    csv_path = os.path.join(output_dir, "all_polyfit_coefficients.csv")
+    df_log.to_csv(csv_path, index=False)
+
+    # Plotting: For each fit_type, show side-by-side boxplots for each coefficient and model
+    for fit_type in fit_types:
+        fig, axes = plt.subplots(1, 3, figsize=(18, 6), sharey=False)
+        fig.suptitle(f"Polynomial Coefficient Distributions: {fit_type.replace('_', ' ').title()}", fontsize=20, fontweight='bold')
+
+        for coef_idx, ax in enumerate(axes):
+            # Prepare data for side-by-side boxplots
+            data = []
+            labels = []
+            colors = []
+            for model in models:
+                data.append(all_coefs[fit_type][coef_idx][model])
+                labels.append(model.capitalize())
+                colors.append(model_colors[model])
+
+            # Create boxplots side by side (not overlapping)
+            box = ax.boxplot(
+                data, 
+                patch_artist=True, 
+                labels=labels, 
+                widths=0.7, 
+                medianprops=dict(linewidth=2, color='black')
+            )
+            for patch, color in zip(box['boxes'], colors):
+                patch.set_facecolor(color)
+                patch.set_alpha(0.7)
+                patch.set_linewidth(2)
+
+            # Annotate means above each box
+            for i, vals in enumerate(data):
+                if len(vals) > 0:
+                    mean_val = np.mean(vals)
+                    ax.scatter(i+1, mean_val, color='black', marker='D', s=60, zorder=5, label='Mean' if i==0 else "")
+                    ax.text(i+1, mean_val, f"{mean_val:.3g}", ha='center', va='bottom', fontsize=12, fontweight='bold')
+
+            ax.set_title(coef_labels[coef_idx], fontsize=16, fontweight='bold')
+            ax.set_xlabel("Model", fontsize=14)
+            if coef_idx == 0:
+                ax.set_ylabel("Coefficient Value", fontsize=14)
+            ax.grid(True, alpha=0.3, linewidth=1.2)
+            ax.tick_params(labelsize=12, width=2, length=7)
+            for spine in ax.spines.values():
+                spine.set_linewidth(2)
+
+        # Add legend for mean marker only once
+        handles, labels_ = axes[0].get_legend_handles_labels()
+        if handles:
+            fig.legend(handles, labels_, loc='upper right', fontsize=13, frameon=True, framealpha=0.9)
+
+        plt.tight_layout(rect=[0, 0, 1, 0.95])
+        plot_path = os.path.join(output_dir, f"{fit_type}_coefficient_distributions.png")
+        plt.savefig(plot_path, bbox_inches='tight', dpi=300)
+        plt.close(fig)
+
+    # Also, save mean coefficients and mean equations for each fit_type/model
+    mean_rows = []
+    for fit_type in fit_types:
+        for model in models:
+            vals_a = all_coefs[fit_type][0][model]
+            vals_b = all_coefs[fit_type][1][model]
+            vals_c = all_coefs[fit_type][2][model]
+            mean_a = np.mean(vals_a) if vals_a else float('nan')
+            mean_b = np.mean(vals_b) if vals_b else float('nan')
+            mean_c = np.mean(vals_c) if vals_c else float('nan')
+            mean_eq = f"{mean_a:.4g}x^2 + {mean_b:.4g}x + {mean_c:.4g}"
+            mean_rows.append({
+                'model': model,
+                'fit_type': fit_type,
+                'mean_a': mean_a,
+                'mean_b': mean_b,
+                'mean_c': mean_c,
+                'mean_equation': mean_eq
+            })
+    df_mean = pd.DataFrame(mean_rows)
+    mean_csv_path = os.path.join(output_dir, "mean_polyfit_coefficients.csv")
+    df_mean.to_csv(mean_csv_path, index=False)

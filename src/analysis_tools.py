@@ -228,20 +228,13 @@ class SimulationAnalyzer:
         self.logger = logger or logging.getLogger(__name__)
     
     def analyze_simulation(self, simulation_result: Dict[str, Any]) -> Dict[str, Any]:
-        """Analyze results from a single simulation run - IMPROVED VERSION.
-        
-        Args:
-            simulation_result: Dictionary containing simulation results
-            
-        Returns:
-            Dictionary containing analysis results
-        """
+        """Analyze results from a single simulation run - IMPROVED VERSION."""
         analysis = {
             "fitness_evolution": self._analyze_fitness_evolution(simulation_result),
             "diploid_offspring": self._analyze_diploid_offspring(simulation_result),
-            "population_stats": self._analyze_population_stats(simulation_result)
+            "population_stats": self._analyze_population_stats(simulation_result),
+            "polynomial_fits": self._analyze_polynomial_fits(simulation_result)
         }
-        
         return analysis
     
     def _analyze_fitness_evolution(self, simulation_result: Dict[str, Any]) -> List[float]:
@@ -289,6 +282,106 @@ class SimulationAnalyzer:
             return stats
         
         return {}
+
+    def _analyze_polynomial_fits(self, simulation_result: Dict[str, Any]) -> Dict[str, Any]:
+        """Calculate polynomial fits for different relationships."""
+        if "diploid_offspring" not in simulation_result:
+            return {}
+
+        fits = {}
+        for model, organisms in simulation_result["diploid_offspring"].items():
+            if not organisms:
+                continue
+
+            # Extract data
+            prs_values = []
+            genomic_distances = []
+            parent_fitness = []
+            offspring_fitness = []
+
+            for org in organisms:
+                if isinstance(org, dict):
+                    prs_values.append(org.get("prs", 0))
+                    genomic_distances.append(org.get("genomic_distance", 0))
+                    parent_fitness.append(org.get("avg_parent_fitness", 0))
+                    offspring_fitness.append(org.get("fitness", 0))
+
+            # Calculate polynomial fits
+            fits[model] = {
+                "prs_fit": self._calculate_fit(prs_values, offspring_fitness),
+                "genomic_distance_fit": self._calculate_fit(genomic_distances, offspring_fitness),
+                "parent_offspring_fit": self._calculate_fit(parent_fitness, offspring_fitness)
+            }
+
+        return fits
+
+    def _calculate_fit(self, x: List[float], y: List[float], degree: int = 2) -> Dict[str, Any]:
+        """Calculate polynomial fit statistics."""
+        try:
+            x_array = np.array(x)
+            y_array = np.array(y)
+            
+            # Remove any NaN or infinite values
+            mask = np.isfinite(x_array) & np.isfinite(y_array)
+            x_clean = x_array[mask]
+            y_clean = y_array[mask]
+            
+            if len(x_clean) < 3:
+                return {
+                    "coefficients": [],
+                    "r2": 0.0,
+                    "p_value": 1.0,
+                    "equation": "insufficient data"
+                }
+            
+            # Fit polynomial
+            coeffs = np.polyfit(x_clean, y_clean, degree)
+            
+            # Calculate predictions
+            poly = np.poly1d(coeffs)
+            y_pred = poly(x_clean)
+            
+            # Calculate R²
+            ss_res = np.sum((y_clean - y_pred) ** 2)
+            ss_tot = np.sum((y_clean - np.mean(y_clean)) ** 2)
+            r2 = 1 - (ss_res / ss_tot) if ss_tot != 0 else 0
+            
+            # Calculate p-value using F-test
+            n = len(x_clean)
+            p = len(coeffs)
+            if n > p and r2 < 1.0:
+                f_stat = (r2 / (p - 1)) / ((1 - r2) / (n - p))
+                p_value = 1 - stats.f.cdf(f_stat, p - 1, n - p)
+            else:
+                p_value = 1.0
+            
+            # Create equation string
+            terms = []
+            for i, coef in enumerate(coeffs):
+                power = degree - i
+                if power == 0:
+                    terms.append(f"{coef:.4f}")
+                elif power == 1:
+                    terms.append(f"{coef:.4f}x")
+                else:
+                    terms.append(f"{coef:.4f}x^{power}")
+            equation = " + ".join(terms)
+            
+            return {
+                "coefficients": coeffs.tolist(),
+                "r2": float(r2),
+                "p_value": float(p_value),
+                "equation": equation
+            }
+            
+        except Exception as e:
+            self.logger.warning(f"Failed to calculate polynomial fit: {e}")
+            return {
+                "coefficients": [],
+                "r2": 0.0,
+                "p_value": 1.0,
+                "equation": "error in calculation"
+            }
 
 
 class MultiRunAnalyzer:
